@@ -1,0 +1,811 @@
+<title>Worldbox — Survey of a Simulated Civilisation</title>
+<style>
+  /* ---- tokens: complete light palette on bare :root ---- */
+  :root {
+    color-scheme: light dark;
+
+    --paper:      #F2F4F0;
+    --surface:    #FBFCFA;
+    --surface-2:  #E7EAE3;
+    --line:       #CDD3C9;
+    --ink:        #0F1311;
+    --ink-2:      #4B554E;
+    --ink-3:      #758078;
+
+    --accent:     #1F6F78;
+    --accent-ink: #0E4C53;
+    --accent-wash:#DCE9E9;
+
+    --war:        #A83A20;
+    --plague:     #6E4795;
+    --invention:  #A4761A;
+    --settlement: #2C6E4B;
+    --era:        #1F6F78;
+
+    --terr-water: #A9BCC9;
+    --terr-grass: #D6DAC6;
+    --terr-forest:#B2C0A2;
+    --terr-mount: #C3C1BA;
+
+    --dot-stroke: rgba(15,19,17,.35);
+    --shadow:     0 1px 2px rgba(15,19,17,.06), 0 8px 24px rgba(15,19,17,.05);
+
+    --f-display: ui-serif, Georgia, "Times New Roman", serif;
+    --f-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --f-data: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #0F1311;
+      --surface:    #171D19;
+      --surface-2:  #1F2722;
+      --line:       #2C352F;
+      --ink:        #E6EBE5;
+      --ink-2:      #A6B0A8;
+      --ink-3:      #7B857D;
+
+      --accent:     #57B3B8;
+      --accent-ink: #8FD3D6;
+      --accent-wash:#16302F;
+
+      --war:        #E0714F;
+      --plague:     #B08BD8;
+      --invention:  #D9AC4A;
+      --settlement: #5FB884;
+      --era:        #57B3B8;
+
+      --terr-water: #22323D;
+      --terr-grass: #2B3427;
+      --terr-forest:#36442E;
+      --terr-mount: #3A3A37;
+
+      --dot-stroke: rgba(0,0,0,.5);
+      --shadow:     0 1px 2px rgba(0,0,0,.4), 0 10px 28px rgba(0,0,0,.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #0F1311;
+    --surface:    #171D19;
+    --surface-2:  #1F2722;
+    --line:       #2C352F;
+    --ink:        #E6EBE5;
+    --ink-2:      #A6B0A8;
+    --ink-3:      #7B857D;
+
+    --accent:     #57B3B8;
+    --accent-ink: #8FD3D6;
+    --accent-wash:#16302F;
+
+    --war:        #E0714F;
+    --plague:     #B08BD8;
+    --invention:  #D9AC4A;
+    --settlement: #5FB884;
+    --era:        #57B3B8;
+
+    --terr-water: #22323D;
+    --terr-grass: #2B3427;
+    --terr-forest:#36442E;
+    --terr-mount: #3A3A37;
+
+    --dot-stroke: rgba(0,0,0,.5);
+    --shadow:     0 1px 2px rgba(0,0,0,.4), 0 10px 28px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--f-ui);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: clamp(20px, 4vw, 44px) clamp(16px, 4vw, 32px) 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  /* ---- masthead ---- */
+  header { display: flex; flex-direction: column; gap: 10px; }
+
+  .eyebrow {
+    font-family: var(--f-data);
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: clamp(30px, 5vw, 46px);
+    line-height: 1.05;
+    letter-spacing: -.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 62ch;
+    color: var(--ink-2);
+    margin: 0;
+  }
+
+  .seedline {
+    font-family: var(--f-data);
+    font-size: 12px;
+    color: var(--ink-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    padding-top: 4px;
+    border-top: 1px solid var(--line);
+    margin-top: 4px;
+  }
+  .seedline b { color: var(--ink-2); font-weight: 600; }
+
+  /* ---- plate: map + readouts ---- */
+  .plate {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 250px;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 860px) { .plate { grid-template-columns: minmax(0, 1fr); } }
+
+  .mapcard {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  canvas#map {
+    display: block; width: 100%; height: auto;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  /* ---- transport ---- */
+  .transport {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--line);
+    background: var(--surface-2);
+    flex-wrap: wrap;
+  }
+
+  button {
+    font-family: var(--f-ui);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--surface);
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 7px 16px;
+    cursor: pointer;
+    min-width: 84px;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  button:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+  button:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+
+  .scrub { flex: 1 1 220px; display: flex; align-items: center; gap: 12px; }
+
+  input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    height: 22px;
+    cursor: pointer;
+  }
+  input[type="range"]:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+
+  .yearstamp {
+    font-family: var(--f-data);
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .yearstamp span { color: var(--ink-3); }
+
+  .speed {
+    font-family: var(--f-data);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .speed select {
+    font-family: var(--f-data);
+    font-size: 12px;
+    padding: 3px 6px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+  }
+
+  /* ---- readouts ---- */
+  .readouts { display: flex; flex-direction: column; gap: 14px; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 14px 15px;
+  }
+
+  .panel h2 {
+    font-family: var(--f-data);
+    font-size: 10px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 10px;
+    font-weight: 600;
+  }
+
+  .stat { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 3px 0; }
+  .stat dt { color: var(--ink-2); font-size: 13px; }
+  .stat dd {
+    margin: 0;
+    font-family: var(--f-data);
+    font-variant-numeric: tabular-nums;
+    font-size: 14px;
+    color: var(--ink);
+  }
+  dl { margin: 0; }
+
+  .era-chip {
+    display: inline-block;
+    font-family: var(--f-data);
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    background: var(--accent-wash);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 3px 8px;
+    margin-top: 2px;
+  }
+
+  canvas#spark { display: block; width: 100%; height: 54px; margin-top: 4px; }
+
+  .legend { display: flex; flex-direction: column; gap: 5px; }
+  .legend .row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; border: 1px solid var(--dot-stroke); }
+  .swatch.sq { border-radius: 1px; width: 9px; height: 9px; }
+  .legend .row b { color: var(--ink); font-weight: 600; font-family: var(--f-data); font-size: 12px; }
+
+  /* ---- chronicle ---- */
+  .chronicle h2 {
+    font-family: var(--f-display);
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: -.01em;
+  }
+  .chronicle .note { color: var(--ink-2); font-size: 14px; margin: 0 0 16px; max-width: 62ch; }
+
+  .entries {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 340px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--surface);
+  }
+
+  .entries li {
+    display: grid;
+    grid-template-columns: 74px 5px minmax(0, 1fr);
+    gap: 12px;
+    align-items: baseline;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--line);
+    transition: background .2s ease, opacity .2s ease;
+    opacity: .42;
+  }
+  .entries li:last-child { border-bottom: none; }
+  .entries li.past { opacity: 1; }
+  .entries li.current { background: var(--accent-wash); opacity: 1; }
+
+  .entries .yr {
+    font-family: var(--f-data);
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+  .entries .tick { width: 5px; height: 5px; border-radius: 50%; align-self: center; }
+  .entries .msg { font-size: 14px; color: var(--ink); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    color: var(--ink-3);
+    font-size: 13px;
+    max-width: 68ch;
+  }
+  footer code {
+    font-family: var(--f-data);
+    font-size: 12.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 1px 5px;
+    color: var(--ink-2);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Worldbox · Run Survey</div>
+    <h1>Sixty-five years of a civilisation that nobody designed</h1>
+    <p class="standfirst">
+      One hundred agents were dropped onto an empty procedural map with nothing but hunger,
+      energy and health. Everything below — the tribes, their villages, the wars and the
+      plagues — assembled itself out of those rules. Drag the scrubber to watch it happen.
+    </p>
+    <div class="seedline" id="seedline"></div>
+  </header>
+
+  <section class="plate">
+    <div class="mapcard">
+      <canvas id="map"></canvas>
+      <div class="transport">
+        <button id="play" aria-label="Play or pause the run">Play</button>
+        <div class="scrub">
+          <input id="scrub" type="range" min="0" value="0" step="1" aria-label="Scrub through the run" />
+          <span class="yearstamp" id="stamp"></span>
+        </div>
+        <label class="speed">Speed
+          <select id="speed" aria-label="Playback speed">
+            <option value="220">Slow</option>
+            <option value="90" selected>Normal</option>
+            <option value="35">Fast</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="readouts">
+      <div class="panel">
+        <h2>At this moment</h2>
+        <dl id="stats"></dl>
+        <div class="era-chip" id="era"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Population</h2>
+        <canvas id="spark"></canvas>
+      </div>
+
+      <div class="panel">
+        <h2>Reading the map</h2>
+        <div class="legend" id="legend"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="chronicle">
+    <h2>The chronicle</h2>
+    <p class="note">
+      The simulation keeps a permanent record of turning points — first inventions, settlements
+      founded and grown, wars, plagues. Entries ahead of the scrubber are dimmed; the highlighted
+      one is what is happening now.
+    </p>
+    <ul class="entries" id="entries"></ul>
+  </section>
+
+  <footer>
+    Recorded from <code>worldbox</code> at seed <span id="seedfoot"></span>, one frame per 100 simulated
+    days. The simulation is a headless Python engine; this page replays a run it exported and
+    never talks back to it.
+  </footer>
+</div>
+
+<script id="rundata" type="application/json">__RUN_DATA__</script>
+<script>
+(function () {
+  "use strict";
+
+  var DATA = JSON.parse(document.getElementById("rundata").textContent);
+  var frames = DATA.frames;
+  var W = DATA.width, H = DATA.height;
+
+  // Terrain codes -> CSS token names, read live so the map follows the theme.
+  var TERRAIN_TOKENS = ["--terr-water", "--terr-grass", "--terr-forest", "--terr-mount"];
+
+  // Tribe colours: evenly spaced hues, kept saturated so they read as data
+  // against the deliberately muted terrain.
+  function tribeColour(i) {
+    if (i < 0) return null;
+    var hue = (i * 47) % 360;
+    var light = 52 + ((i * 13) % 16);
+    return "hsl(" + hue + " 62% " + light + "%)";
+  }
+
+  function token(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  // ---- pixel sprites ------------------------------------------------------
+  // Tiny bitmaps drawn at integer scale with smoothing off, so everything on
+  // the map stays crisply pixelated however far it is zoomed.
+  // "." is transparent, "#" the body colour, "o" a lighter highlight,
+  // "x" a darker outline.
+  var PERSON = [
+    ".#.",
+    "###",
+    ".#.",
+    "#.#"
+  ];
+
+  // Settlements grow with their level: a tent, a hut, a walled village,
+  // a town with a second storey, then a city with towers.
+  var SETTLEMENTS = [
+    [ "..x..",
+      ".x#x.",
+      "x###x",
+      "#####" ],
+    [ ".xxx.",
+      "x###x",
+      "#o#o#",
+      "#####" ],
+    [ "x.xxx.x",
+      "xx###xx",
+      "x#o#o#x",
+      "x#####x",
+      "xxxxxxx" ],
+    [ ".x...x.",
+      "xxx.xxx",
+      "x#xxx#x",
+      "x#o#o#x",
+      "x#####x",
+      "x#o#o#x",
+      "xxxxxxx" ],
+    [ "x.x.x.x.x",
+      "xxxxxxxxx",
+      "x#o#o#o#x",
+      "x#######x",
+      "x#o#o#o#x",
+      "x#######x",
+      "x#o#o#o#x",
+      "xxxxxxxxx" ]
+  ];
+
+  // Sprites are rendered once per (bitmap, colour, scale) and reused, which
+  // keeps a 500-agent frame to a few hundred drawImage calls.
+  var spriteCache = Object.create(null);
+
+  function shade(colour, amount) {
+    var m = /hsl\((\d+) (\d+)% (\d+)%\)/.exec(colour);
+    if (!m) return colour;
+    var l = Math.max(6, Math.min(94, +m[3] + amount));
+    return "hsl(" + m[1] + " " + m[2] + "% " + l + "%)";
+  }
+
+  function makeSprite(bitmap, colour, scale) {
+    var key = bitmap.length + ":" + bitmap[0].length + ":" + colour + ":" + scale;
+    var hit = spriteCache[key];
+    if (hit) return hit;
+
+    var w = bitmap[0].length, h = bitmap.length;
+    var off = document.createElement("canvas");
+    off.width = w * scale;
+    off.height = h * scale;
+    var octx = off.getContext("2d");
+    var fills = {
+      "#": colour,
+      "o": shade(colour, 14),
+      "x": shade(colour, -22)
+    };
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var ch = bitmap[y][x];
+        if (ch === ".") continue;
+        octx.fillStyle = fills[ch] || colour;
+        octx.fillRect(x * scale, y * scale, scale, scale);
+      }
+    }
+    spriteCache[key] = off;
+    return off;
+  }
+
+  var mapCanvas = document.getElementById("map");
+  var ctx = mapCanvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  var sparkCanvas = document.getElementById("spark");
+  var sctx = sparkCanvas.getContext("2d");
+
+  var index = 0;
+  var playing = false;
+  var timer = null;
+  var cell = 8;
+
+  // ---- sizing -------------------------------------------------------------
+  function sizeCanvas() {
+    var dpr = window.devicePixelRatio || 1;
+    var available = mapCanvas.parentElement.clientWidth;
+    cell = Math.max(3, Math.floor(available / W));
+    var cssW = cell * W, cssH = cell * H;
+    mapCanvas.style.width = cssW + "px";
+    mapCanvas.style.height = cssH + "px";
+    mapCanvas.width = Math.round(cssW * dpr);
+    mapCanvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+
+    var sw = sparkCanvas.parentElement.clientWidth - 30;
+    sparkCanvas.style.width = sw + "px";
+    sparkCanvas.width = Math.round(sw * dpr);
+    sparkCanvas.height = Math.round(54 * dpr);
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  // ---- map ----------------------------------------------------------------
+  var terrainCache = null;
+
+  function paintTerrain() {
+    var colours = TERRAIN_TOKENS.map(token);
+    for (var y = 0; y < H; y++) {
+      var row = DATA.terrain[y];
+      for (var x = 0; x < W; x++) {
+        ctx.fillStyle = colours[+row[x]];
+        ctx.fillRect(x * cell, y * cell, cell, cell);
+      }
+    }
+    terrainCache = ctx.getImageData(0, 0, mapCanvas.width, mapCanvas.height);
+  }
+
+  function drawFrame(i) {
+    var f = frames[i];
+    if (terrainCache) ctx.putImageData(terrainCache, 0, 0);
+    else paintTerrain();
+
+    // Settlements sit under the people, drawn as pixel structures that gain
+    // storeys as they grow from camp to city.
+    var scale = Math.max(1, Math.round(cell / 4));
+    var loner = token("--ink-3");
+    var s = f.s;
+    for (var k = 0; k < s.length; k += 4) {
+      var level = Math.max(0, Math.min(4, s[k + 2]));
+      var bmp = SETTLEMENTS[level];
+      var colour = tribeColour(s[k + 3]) || loner;
+      var sprite = makeSprite(bmp, colour, scale);
+      ctx.drawImage(
+        sprite,
+        Math.round(s[k] * cell + cell / 2 - sprite.width / 2),
+        Math.round(s[k + 1] * cell + cell / 2 - sprite.height / 2)
+      );
+    }
+
+    // People.
+    var a = f.a;
+    var pScale = Math.max(1, Math.round(cell / 5));
+    for (var j = 0; j < a.length; j += 3) {
+      var pc = tribeColour(a[j + 2]) || loner;
+      var ps = makeSprite(PERSON, pc, pScale);
+      ctx.drawImage(
+        ps,
+        Math.round(a[j] * cell + cell / 2 - ps.width / 2),
+        Math.round(a[j + 1] * cell + cell / 2 - ps.height / 2)
+      );
+    }
+  }
+
+  // ---- sparkline ----------------------------------------------------------
+  function drawSpark(i) {
+    var w = sparkCanvas.clientWidth, h = 54, pad = 3;
+    sctx.clearRect(0, 0, w, h);
+    var peak = 1;
+    for (var k = 0; k < frames.length; k++) peak = Math.max(peak, frames[k].p);
+
+    function px(n) { return (n / (frames.length - 1)) * w; }
+    function py(v) { return h - pad - (v / peak) * (h - pad * 2); }
+
+    sctx.beginPath();
+    sctx.moveTo(0, h);
+    for (var n = 0; n < frames.length; n++) sctx.lineTo(px(n), py(frames[n].p));
+    sctx.lineTo(w, h);
+    sctx.closePath();
+    sctx.fillStyle = token("--accent-wash");
+    sctx.fill();
+
+    sctx.beginPath();
+    for (var m = 0; m < frames.length; m++) {
+      var X = px(m), Y = py(frames[m].p);
+      if (m === 0) sctx.moveTo(X, Y); else sctx.lineTo(X, Y);
+    }
+    sctx.strokeStyle = token("--accent");
+    sctx.lineWidth = 1.5;
+    sctx.stroke();
+
+    sctx.beginPath();
+    sctx.arc(px(i), py(frames[i].p), 3, 0, 6.2832);
+    sctx.fillStyle = token("--accent");
+    sctx.fill();
+  }
+
+  // ---- readouts -----------------------------------------------------------
+  var statsEl = document.getElementById("stats");
+
+  function readouts(f) {
+    var rows = [
+      ["Population", f.p.toLocaleString()],
+      ["Tribes", f.t],
+      ["Settlements", (f.s.length / 4)],
+      ["Technologies", f.k + " / 16"],
+      ["Wars underway", f.w],
+      ["Currently ill", f.i],
+      ["Killed in war", f.wd.toLocaleString()],
+      ["Killed by plague", f.pd.toLocaleString()],
+      ["Wild food left", Math.round(f.f * 100) + "%"]
+    ];
+    statsEl.innerHTML = rows.map(function (r) {
+      return '<div class="stat"><dt>' + r[0] + "</dt><dd>" + r[1] + "</dd></div>";
+    }).join("");
+    document.getElementById("era").textContent = f.e || "Pre-technological";
+  }
+
+  // ---- chronicle ----------------------------------------------------------
+  var KIND_COLOUR = {
+    war: "--war", plague: "--plague", first_tech: "--invention",
+    settlement: "--settlement", era: "--era", population: "--accent",
+    tribe: "--ink-3", collapse: "--war"
+  };
+  var entriesEl = document.getElementById("entries");
+
+  function buildChronicle() {
+    entriesEl.innerHTML = DATA.chronicle.map(function (e) {
+      var c = KIND_COLOUR[e.kind] || "--ink-3";
+      return '<li data-day="' + e.day + '">' +
+        '<span class="yr">Year ' + e.year + "</span>" +
+        '<span class="tick" style="background:var(' + c + ')"></span>' +
+        '<span class="msg">' + e.message.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</span>" +
+        "</li>";
+    }).join("");
+  }
+
+  function syncChronicle(day) {
+    var items = entriesEl.children;
+    var newest = -1;
+    for (var i = 0; i < items.length; i++) {
+      var d = +items[i].dataset.day;
+      items[i].classList.toggle("past", d <= day);
+      items[i].classList.remove("current");
+      if (d <= day) newest = i;
+    }
+    if (newest >= 0) {
+      items[newest].classList.add("current");
+      var el = items[newest];
+      var top = el.offsetTop - entriesEl.clientHeight / 2 + el.clientHeight / 2;
+      entriesEl.scrollTo({ top: top, behavior: "smooth" });
+    }
+  }
+
+  // ---- legend -------------------------------------------------------------
+  function buildLegend() {
+    var rows = [
+      ['<span class="swatch" style="background:' + tribeColour(0) + '"></span>',
+       "Each little figure is one person, coloured by tribe"],
+      ['<span class="swatch" style="background:var(--ink-3)"></span>',
+       "Grey figures belong to no tribe"],
+      ['<span class="swatch sq" style="background:' + tribeColour(3) + '"></span>',
+       "Buildings are settlements; they gain storeys as they grow"]
+    ];
+    var top = DATA.finalTribes.slice(0, 5).map(function (t) {
+      return '<div class="row"><span class="swatch" style="background:' +
+        (tribeColour(t.index) || "var(--ink-3)") + '"></span><span><b>' +
+        t.name.replace(/</g, "&lt;") + "</b> · " + t.size + " people</span></div>";
+    }).join("");
+    document.getElementById("legend").innerHTML =
+      rows.map(function (r) { return '<div class="row">' + r[0] + "<span>" + r[1] + "</span></div>"; }).join("") +
+      '<div class="row" style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px">' +
+      '<span style="font-family:var(--f-data);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)">Largest tribes at the end</span></div>' +
+      top;
+  }
+
+  // ---- transport ----------------------------------------------------------
+  var scrub = document.getElementById("scrub");
+  var stamp = document.getElementById("stamp");
+  var playBtn = document.getElementById("play");
+
+  function show(i) {
+    index = Math.max(0, Math.min(frames.length - 1, i));
+    var f = frames[index];
+    drawFrame(index);
+    drawSpark(index);
+    readouts(f);
+    syncChronicle(f.d);
+    scrub.value = index;
+    stamp.innerHTML = "Year " + f.y + " <span>· day " + f.d.toLocaleString() + "</span>";
+  }
+
+  function tick() {
+    if (!playing) return;
+    if (index >= frames.length - 1) { stop(); return; }
+    show(index + 1);
+  }
+
+  function start() {
+    playing = true;
+    playBtn.textContent = "Pause";
+    if (index >= frames.length - 1) show(0);
+    clearInterval(timer);
+    timer = setInterval(tick, +document.getElementById("speed").value);
+  }
+
+  function stop() {
+    playing = false;
+    playBtn.textContent = "Play";
+    clearInterval(timer);
+  }
+
+  playBtn.addEventListener("click", function () { playing ? stop() : start(); });
+  scrub.addEventListener("input", function () { stop(); show(+scrub.value); });
+  document.getElementById("speed").addEventListener("change", function () {
+    if (playing) start();
+  });
+
+  // ---- theme + resize -----------------------------------------------------
+  function repaint() {
+    sizeCanvas();
+    terrainCache = null;
+    spriteCache = Object.create(null);
+    paintTerrain();
+    show(index);
+  }
+
+  window.addEventListener("resize", repaint);
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
+  }
+  new MutationObserver(repaint).observe(document.documentElement, {
+    attributes: true, attributeFilter: ["data-theme"]
+  });
+
+  // ---- go -----------------------------------------------------------------
+  var last = frames[frames.length - 1];
+  document.getElementById("seedline").innerHTML =
+    "<span>Seed <b>" + DATA.seed + "</b></span>" +
+    "<span>Map <b>" + W + "×" + H + "</b></span>" +
+    "<span>Span <b>" + last.y + " years</b> (" + last.d.toLocaleString() + " days)</span>" +
+    "<span>Frames <b>" + frames.length + "</b></span>" +
+    "<span>Turning points <b>" + DATA.chronicle.length + "</b></span>";
+  document.getElementById("seedfoot").textContent = DATA.seed;
+
+  scrub.max = frames.length - 1;
+  buildChronicle();
+  buildLegend();
+  sizeCanvas();
+  paintTerrain();
+  show(0);
+})();
+</script>
