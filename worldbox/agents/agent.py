@@ -83,6 +83,8 @@ class Agent:
     role: str = "forager"  # Profession within the tribe; see roles.Role.
     family_name: str = ""  # Inherited surname, so lineages are visible.
     aggression: float = 0.35  # 0.0 peaceful .. 1.0 warlike; inherited.
+    caution: float = 0.50  # Raises flight, lowers fight; inherited.
+    industry: float = 0.55  # Willingness to travel for food; inherited.
     kills: int = 0
     wounded_on_day: int = -10**9  # Last day this agent took a wound.
     wounded_by_group: Optional[int] = None  # Tribe that inflicted it.
@@ -186,6 +188,8 @@ def create_agent(
     needs: Optional[Needs] = None,
     group_id: Optional[int] = None,
     inherited_aggression: Optional[float] = None,
+    inherited_caution: Optional[float] = None,
+    inherited_industry: Optional[float] = None,
     naming_style: Optional[int] = None,
     inherited_family: Optional[str] = None,
 ) -> Agent:
@@ -204,6 +208,15 @@ def create_agent(
         aggression = rng.gauss(inherited_aggression, config.aggression_inheritance_drift)
     aggression = max(0.0, min(1.0, aggression))
 
+    def trait(inherited: Optional[float], mean: float, stddev: float) -> float:
+        """Inherit a trait with drift, or draw a fresh one for a founder."""
+        if inherited is None:
+            return max(0.0, min(1.0, rng.gauss(mean, stddev)))
+        return max(0.0, min(1.0, rng.gauss(inherited, config.aggression_inheritance_drift)))
+
+    caution = trait(inherited_caution, config.caution_mean, config.caution_stddev)
+    industry = trait(inherited_industry, config.industry_mean, config.industry_stddev)
+
     given, family = full_name(rng, naming_style, inherited_family)
     agent = Agent(
         id=agent_id,
@@ -219,5 +232,7 @@ def create_agent(
         group_id=group_id,
         family_name=family,
         aggression=aggression,
+        caution=caution,
+        industry=industry,
     )
     return agent

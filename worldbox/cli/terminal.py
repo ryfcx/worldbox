@@ -385,6 +385,7 @@ Commands
   towns              Every settlement and its granary
   chronicle [n]      The permanent history of the world (default 30)
   narrate            Have an AI write up the chronicle as a history
+  view [days]        Build the graphical map and open it in a browser
   export [days]      Record a run to JSON for the visual map viewer
   events [n]         Display the n most recent events (default 15)
   help               Show this help
@@ -426,6 +427,9 @@ class Terminal:
             "chronicle": self.cmd_chronicle,
             "narrate": self.cmd_narrate,
             "export": self.cmd_export,
+            "view": self.cmd_view,
+            "gui": self.cmd_view,
+            "map": self.cmd_view,
             "history": self.cmd_chronicle,
             "events": self.cmd_events,
             "help": self.cmd_help,
@@ -627,6 +631,15 @@ class Terminal:
         for line in ai_narrator.wrap(result.text):
             print(f"  {line}")
         print(rule)
+
+    def cmd_view(self, args: List[str]) -> None:
+        """Build the graphical map from the current world and open it."""
+        from ..main import run_viewer
+
+        days = self._parse_int(args, "number of days", default=0)
+        self.runner.pause()
+        with self.runner.lock:
+            run_viewer(self.engine, days, open_browser=True)
 
     def cmd_export(self, args: List[str]) -> None:
         """Record a run to JSON for the visual viewer."""

@@ -36,6 +36,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run this many days without interaction, print a summary, then exit.",
     )
     parser.add_argument(
+        "--view",
+        type=int,
+        nargs="?",
+        const=20000,
+        default=None,
+        metavar="DAYS",
+        help="Simulate DAYS days (default 20000), build the map viewer and open it.",
+    )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="With --view, write the page but do not open a browser.",
+    )
+    parser.add_argument(
         "--population",
         type=int,
         default=None,
@@ -80,6 +94,60 @@ def run_headless(engine: SimulationEngine, days: int) -> None:
         print(f"\nStopped after {simulated} days: the population died out.")
 
 
+def run_viewer(engine: SimulationEngine, days: int, open_browser: bool = True) -> int:
+    """Simulate, build the standalone map page, and open it.
+
+    This is the whole graphical path in one call, so seeing a world takes a
+    single command rather than an export, a build step and a file hunt.
+    """
+    import webbrowser
+    from pathlib import Path
+
+    from .export import RunRecorder
+
+    # tools/ is not a package, so put it on the path to reuse the builder
+    # rather than duplicating the template-substitution logic here.
+    tools = Path(__file__).resolve().parent.parent / "tools"
+    if str(tools) not in sys.path:
+        sys.path.insert(0, str(tools))
+    try:
+        from build_viewer import build
+    except ImportError:
+        print(f"Could not find the viewer builder in {tools}.", file=sys.stderr)
+        return 1
+
+    # Aim for ~200 frames whatever the run length, so the scrubber stays smooth.
+    every = max(10, days // 200) if days > 0 else 10
+    if days > 0:
+        print(f"Simulating {days:,} days...")
+    recorder = RunRecorder(engine, every=every)
+    if days > 0:
+        recorder.run(days)
+    else:
+        recorder.capture()
+
+    data_path = Path("worldbox_run.json")
+    page = Path("worldbox.html")
+    try:
+        recorder.write_json(data_path)
+        build(data_path, page)
+    except (FileNotFoundError, ValueError, OSError) as error:
+        print(f"Could not build the viewer: {error}", file=sys.stderr)
+        return 1
+
+    stats = engine.stats()
+    print(
+        f"Year {stats.year}: {stats.population} people, {stats.tribes} tribes, "
+        f"{stats.settlements} settlements, {stats.technologies_known}/16 technologies."
+    )
+    print(f"Wrote {page} ({page.stat().st_size / 1024:.0f} KB).")
+
+    if open_browser:
+        webbrowser.open(page.resolve().as_uri())
+        print("Opened it in your browser.")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Program entry point. Returns a process exit code."""
     args = build_parser().parse_args(argv)
@@ -89,6 +157,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     except (ValueError, WorldGenerationError) as error:
         print(f"Could not start Worldbox: {error}", file=sys.stderr)
         return 1
+
+    if args.view is not None:
+        return run_viewer(engine, args.view, open_browser=not args.no_open)
 
     if args.days is not None:
         if args.days < 0:

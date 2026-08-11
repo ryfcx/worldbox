@@ -616,6 +616,8 @@ class SimulationEngine:
                 # average of their temperaments.
                 group_id=agent.group_id if agent.group_id is not None else partner.group_id,
                 inherited_aggression=(agent.aggression + partner.aggression) / 2.0,
+                inherited_caution=(agent.caution + partner.caution) / 2.0,
+                inherited_industry=(agent.industry + partner.industry) / 2.0,
                 naming_style=self._naming_style(agent, partner),
                 inherited_family=agent.family_name or partner.family_name,
             )

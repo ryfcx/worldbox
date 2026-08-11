@@ -55,6 +55,7 @@ of hosts, and comes back a generation later once enough new people have been bor
 | `tech` | the tech tree and who's got what |
 | `wars` / `towns` | current conflicts, current settlements |
 | `agent <id>` | one person: needs, memory, family, job |
+| `view [days]` | build the graphical map and open it |
 | `narrate` | have an AI write the chronicle up as prose |
 | `export [days]` | record a run to JSON for the map viewer |
 | `stats` / `events` | numbers, recent activity |
@@ -75,10 +76,37 @@ Year    6 (day   2387) | Black Plague killed 18 over 14 days
 
 ## Seeing it
 
-`export 20000` writes `worldbox_run.json` — terrain, positions sampled over time,
-settlements, and the chronicle. `tools/build_viewer.py` turns that into a
-self-contained HTML page: a pixel map you can scrub through, with the chronicle
-tracking whatever year you've scrubbed to.
+One command:
+
+```bash
+python3 -m worldbox.main --view 20000
+```
+
+Simulates, builds a self-contained HTML page and opens it: a pixel map you can
+scrub through, terminal-style readouts, an event log, and AI commentary that
+follows the timeline. `view 20000` does the same from inside the prompt.
+
+`--no-open` writes the page without launching a browser. The two steps are still
+available separately as `export` plus `tools/build_viewer.py`.
+
+## How agents decide
+
+Each day every agent scores every action it could take — eat, look for food,
+rest, fight, flee, seek a mate, wander — on 0 to 1, and does whichever scores
+highest. Scores curve rather than step, so a mildly hungry agent isn't the same
+as a starving one and behaviour changes smoothly instead of flipping at a line.
+
+That matters more than it sounds. The first version was a priority ladder:
+check threat, then tiredness, then hunger, first match wins. It couldn't weigh
+anything against anything else — an agent at energy 30 rested while starving,
+purely because tiredness sat higher in the list.
+
+Two traits, `caution` and `industry`, weight those scores per agent and are
+inherited with drift, so temperament is under selection rather than fixed.
+
+The old ladder is still there as `decide_by_rules`, behind
+`UtilityConfig.enabled`. `tools/compare_runs.py` runs both on the same seeds
+and prints the difference.
 
 ## AI narration
 

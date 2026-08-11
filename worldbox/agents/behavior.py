@@ -31,6 +31,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from ..config import Config
 from ..world.world import World
 from .agent import Agent
+from . import utility
 from .needs import apply_movement_cost, apply_rest
 
 Coord = Tuple[int, int]
@@ -127,7 +128,31 @@ def decide(
 ) -> Goal:
     """Choose this agent's goal for the day (phase 3 of the tick).
 
-    Survival outranks every other need, so a nearby threat is considered first.
+    Every action is scored and the best one wins, so competing needs resolve
+    against each other instead of the first matching rule taking the day. See
+    :mod:`worldbox.agents.utility` for the scoring itself.
+
+    The legacy first-match ladder is kept behind ``UtilityConfig.enabled`` so
+    the two can be compared on the same seed.
+    """
+    social = social or SocialContext()
+    if config.utility.enabled:
+        return utility.choose(agent, world, config, day, social).goal
+    return decide_by_rules(agent, world, config, day, social)
+
+
+def decide_by_rules(
+    agent: Agent,
+    world: World,
+    config: Config,
+    day: int,
+    social: Optional[SocialContext] = None,
+) -> Goal:
+    """The original first-match ladder, kept for comparison.
+
+    Retained deliberately: it is the baseline the utility system is measured
+    against, and having both on the same seed is the only honest way to show
+    what changed.
     """
     needs = agent.needs
     agent_config = config.agents

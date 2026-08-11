@@ -153,6 +153,51 @@ class AgentConfig:
     aggression_stddev: float = 0.18
     aggression_inheritance_drift: float = 0.08
 
+    # Caution raises the urge to flee and lowers the urge to fight; industry is
+    # willingness to travel for food. Both are inherited like aggression, so a
+    # tribe's temperament is shaped by which of its people survived.
+    caution_mean: float = 0.50
+    caution_stddev: float = 0.20
+    industry_mean: float = 0.55
+    industry_stddev: float = 0.20
+
+
+@dataclass(frozen=True)
+class UtilityConfig:
+    """Weights for utility-based action selection.
+
+    Each action scores ``weight * need``, where need is 0..1. Raising a weight
+    makes that action win more arguments; it is the main dial for temperament at
+    the species level, while the per-agent traits vary it individually.
+    """
+
+    enabled: bool = True
+
+    # Exponents bend a need so mild pressure stays cheap and severe pressure
+    # dominates. 1.0 would be linear.
+    hunger_exponent: float = 2.0
+    energy_exponent: float = 2.2
+
+    # Action weights.
+    eat: float = 1.00
+    seek_food: float = 0.95
+    rest: float = 0.90
+    flee: float = 1.15
+    fight: float = 0.95
+    seek_mate: float = 0.60
+
+    # Wandering wins only when nothing else is pressing.
+    wander_baseline: float = 0.06
+
+    # How strongly the caution trait suppresses courage.
+    caution_weight: float = 0.35
+    # Extra pull toward fleeing when badly hurt.
+    frailty_flee: float = 0.5
+    # Children keep only this fraction of their courage.
+    child_courage: float = 0.25
+    # Even the least industrious agent will look for food this eagerly.
+    industry_floor: float = 0.55
+
 
 # ---------------------------------------------------------------------------
 # Society: tribes, technology, diplomacy, war and disease
@@ -418,6 +463,7 @@ class Config:
     world: WorldConfig = field(default_factory=WorldConfig)
     resources: ResourceConfig = field(default_factory=ResourceConfig)
     agents: AgentConfig = field(default_factory=AgentConfig)
+    utility: UtilityConfig = field(default_factory=UtilityConfig)
     groups: GroupConfig = field(default_factory=GroupConfig)
     settlements: SettlementConfig = field(default_factory=SettlementConfig)
     roles: RoleConfig = field(default_factory=RoleConfig)
