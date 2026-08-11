@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import ssl
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -32,6 +33,9 @@ from ..simulation.chronicle import ChronicleEntry
 DEFAULT_MODEL = "gemini-flash-latest"
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
 ENV_KEY = "GEMINI_API_KEY"
+
+# Statuses worth a retry: rate limiting and transient server faults.
+RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
 SYSTEM_PROMPT = """\
 You are a historian writing about a civilisation that actually existed. You are \
@@ -104,6 +108,8 @@ def narrate(
     model: str = DEFAULT_MODEL,
     timeout: float = 30.0,
     max_entries: int = 120,
+    retries: int = 2,
+    backoff: float = 1.5,
 ) -> Narration:
     """Ask the model to write up a chronicle as a history.
 
@@ -135,26 +141,71 @@ def narrate(
         method="POST",
     )
 
-    try:
-        with urllib.request.urlopen(request, timeout=timeout, context=ssl_context()) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        detail = error.read().decode("utf-8", errors="ignore")[:300]
-        return Narration(error=f"API returned {error.code}: {detail}", model=model)
-    except urllib.error.URLError as error:
-        return Narration(error=f"Could not reach the API: {error.reason}", model=model)
-    except ssl.SSLError as error:
-        return Narration(
-            error=(
-                f"TLS failure: {error}. If this says 'certificate verify failed', run "
-                "/Applications/Python*/Install Certificates.command once."
-            ),
-            model=model,
-        )
-    except (TimeoutError, OSError) as error:
-        return Narration(error=f"Network error: {error}", model=model)
-    except json.JSONDecodeError:
-        return Narration(error="The API returned a response that was not JSON.", model=model)
+    body = None
+    last_error = ""
+    # Rate limits and transient server faults are worth retrying; everything
+    # else fails on the first attempt so the user sees the real problem fast.
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(
+                request, timeout=timeout, context=ssl_context()
+            ) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="ignore")[:300]
+            if error.code in RETRYABLE_STATUS and attempt < retries:
+                last_error = f"API returned {error.code}"
+                time.sleep(backoff * (2**attempt))
+                continue
+            if error.code in (401, 403):
+                return Narration(
+                    error=(
+                        f"API rejected the key ({error.code}). Check that {ENV_KEY} is set "
+                        f"to a valid key with the Generative Language API enabled. {detail}"
+                    ),
+                    model=model,
+                )
+            if error.code == 404:
+                return Narration(
+                    error=(
+                        f"Model '{model}' is not available to this key ({error.code}). "
+                        "Google retires model versions; try model='gemini-flash-latest'."
+                    ),
+                    model=model,
+                )
+            return Narration(error=f"API returned {error.code}: {detail}", model=model)
+        except urllib.error.URLError as error:
+            # urlopen wraps TLS failures in URLError, so a certificate problem
+            # has to be recognised from the wrapped reason rather than by
+            # catching ssl.SSLError (which would be unreachable here).
+            reason = error.reason
+            if isinstance(reason, ssl.SSLError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+                return Narration(
+                    error=(
+                        f"TLS certificate verification failed ({reason}). Python installed "
+                        "from python.org ships without a CA bundle -- run "
+                        "'/Applications/Python 3.x/Install Certificates.command' once, "
+                        "or 'pip install certifi'."
+                    ),
+                    model=model,
+                )
+            if attempt < retries:
+                last_error = f"Could not reach the API: {reason}"
+                time.sleep(backoff * (2**attempt))
+                continue
+            return Narration(error=f"Could not reach the API: {reason}", model=model)
+        except (TimeoutError, OSError) as error:
+            if attempt < retries:
+                last_error = f"Network error: {error}"
+                time.sleep(backoff * (2**attempt))
+                continue
+            return Narration(error=f"Network error: {error}", model=model)
+        except json.JSONDecodeError:
+            return Narration(error="The API returned a response that was not JSON.", model=model)
+
+    if body is None:
+        return Narration(error=last_error or "The request failed.", model=model)
 
     try:
         parts = body["candidates"][0]["content"]["parts"]
@@ -166,6 +217,17 @@ def narrate(
         return Narration(error="The API response contained no text.", model=model)
 
     if not text:
+        reason = ""
+        try:
+            reason = body["candidates"][0].get("finishReason", "")
+        except (KeyError, IndexError, TypeError):
+            pass
+        if reason == "MAX_TOKENS":
+            return Narration(
+                error="The model hit its output limit before writing anything. "
+                      "Try a shorter chronicle (lower max_entries).",
+                model=model,
+            )
         return Narration(error="The model returned an empty history.", model=model)
     return Narration(text=text, model=model)
 

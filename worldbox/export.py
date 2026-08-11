@@ -75,12 +75,28 @@ class RunRecorder:
     tribes are founded and die out constantly.
     """
 
-    def __init__(self, engine: SimulationEngine, every: int = 50) -> None:
+    # Event kinds worth putting in a viewer's log; routine foraging is noise.
+    LOGGED_KINDS = ("birth", "death", "war", "plague", "invention", "society", "milestone")
+
+    def __init__(self, engine: SimulationEngine, every: int = 50, log_limit: int = 1200) -> None:
         self.engine = engine
         self.every = max(1, every)
         self.frames: List[Frame] = []
         self.tribe_index: Dict[int, int] = {}
         self.tribe_names: List[str] = []
+        self.log: List[Dict[str, Any]] = []
+        self.log_limit = log_limit
+        # Subscribe once so the log is captured as the run happens, rather than
+        # scraped afterwards from a ring buffer that has already dropped things.
+        engine.events.subscribe(self._on_event)
+
+    def _on_event(self, event) -> None:
+        """Collect notable events as they are recorded."""
+        if event.kind.value not in self.LOGGED_KINDS:
+            return
+        if len(self.log) >= self.log_limit:
+            return
+        self.log.append({"d": event.day, "k": event.kind.value, "m": event.message})
 
     def _index_for(self, group_id: Optional[int]) -> int:
         """Stable colour index for a tribe, allocated on first sight."""
@@ -161,6 +177,8 @@ class RunRecorder:
             "terrain": self.terrain_rows(),
             "tribeNames": self.tribe_names,
             "frames": [frame.to_dict() for frame in self.frames],
+            "log": self.log,
+            "narration": getattr(self, "narration", []),
             "chronicle": [
                 {"day": entry.day, "year": entry.year, "kind": entry.kind.value,
                  "message": entry.message}
