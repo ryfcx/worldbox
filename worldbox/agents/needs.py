@@ -51,8 +51,23 @@ class Needs:
         return self.health <= 0.0
 
 
+def frailty(age_years: float, config: AgentConfig) -> float:
+    """How far an agent's body has declined with age, 0.0 to 1.0.
+
+    Zero until ``frailty_start_years``, then climbing with age. Used both to
+    blunt recovery and to apply a slow daily decline.
+    """
+    excess = age_years - config.frailty_start_years
+    if excess <= 0.0:
+        return 0.0
+    return min(config.frailty_max_loss, excess * config.frailty_loss_per_year)
+
+
 def apply_daily_upkeep(
-    needs: Needs, config: AgentConfig, health_bonus: float = 0.0
+    needs: Needs,
+    config: AgentConfig,
+    health_bonus: float = 0.0,
+    age_years: float = 0.0,
 ) -> None:
     """Apply one day of baseline metabolism (phase 2 of the tick).
 
@@ -61,7 +76,9 @@ def apply_daily_upkeep(
 
     ``health_bonus`` is an additive multiplier on recovery (0.35 = +35%), which
     the engine derives from the agent's tribe's medical technology.
+    ``age_years`` drives frailty: the old recover less and decline slowly.
     """
+    decline = frailty(age_years, config)
     needs.hunger = clamp(needs.hunger + config.hunger_per_day)
     needs.energy = clamp(needs.energy - config.energy_per_day)
 
@@ -75,9 +92,19 @@ def apply_daily_upkeep(
         and needs.hunger <= config.health_regen_max_hunger
         and needs.energy >= config.health_regen_min_energy
     ):
-        health_delta += config.health_regen * (1.0 + max(0.0, health_bonus))
+        # The old heal more slowly than the young.
+        health_delta += config.health_regen * (1.0 + max(0.0, health_bonus)) * (1.0 - decline)
 
     needs.health = clamp(needs.health + health_delta)
+
+    # Frailty is modelled as a ceiling rather than a daily drain. A drain has to
+    # out-race the recovery term, which needs values so large they become a
+    # death spiral; a ceiling simply means an aged body cannot be brought back
+    # to the condition of a young one. The old are therefore permanently closer
+    # to the edge -- weaker in a fight, likelier to be finished off by famine or
+    # plague -- without any runaway.
+    if decline > 0.0:
+        needs.health = min(needs.health, 100.0 * (1.0 - decline))
 
 
 def apply_movement_cost(needs: Needs, config: AgentConfig) -> None:

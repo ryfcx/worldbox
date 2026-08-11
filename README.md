@@ -104,6 +104,12 @@ purely because tiredness sat higher in the list.
 Two traits, `caution` and `industry`, weight those scores per agent and are
 inherited with drift, so temperament is under selection rather than fixed.
 
+Bodies age. Past 45 a ceiling comes down on how healthy anyone can be — about 78
+at 55, 56 at 65 — so the old are permanently closer to the edge and are the first
+to be finished off by famine, plague or a fight. Health is modelled as a ceiling
+rather than a daily drain because a drain has to out-race the recovery term, and
+the values needed to do that turn into a death spiral.
+
 The old ladder is still there as `decide_by_rules`, behind
 `UtilityConfig.enabled`. `tools/compare_runs.py` runs both on the same seeds
 and prints the difference.

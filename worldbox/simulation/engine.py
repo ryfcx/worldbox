@@ -275,7 +275,10 @@ class SimulationEngine:
                 # Phase 2: needs.
                 agent.age_days += 1
                 apply_daily_upkeep(
-                    agent.needs, self.config.agents, self._tech(agent).health
+                    agent.needs,
+                    self.config.agents,
+                    self._tech(agent).health,
+                    agent.age_days / self.config.simulation.days_per_year,
                 )
                 agent.memory.forget_stale_food(day, self.config.agents)
 

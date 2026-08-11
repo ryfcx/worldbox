@@ -118,6 +118,15 @@ class AgentConfig:
     health_regen_max_hunger: float = 35.0
     health_regen_min_energy: float = 60.0
 
+    # Age-related frailty. Without this, health is effectively binary: agents
+    # sit pinned near 100 until they starve, so the old are exactly as robust
+    # as the young and health carries no information. From this age, recovery
+    # weakens and a small daily decline sets in, so the elderly become
+    # genuinely vulnerable to famine, plague and violence.
+    frailty_start_years: float = 45.0
+    frailty_loss_per_year: float = 0.022
+    frailty_max_loss: float = 0.70
+
     # --- Perception & memory ----------------------------------------------
     vision_radius: int = 5
     memory_capacity: int = 12  # Remembered food locations per agent.
