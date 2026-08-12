@@ -1,0 +1,373 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Worldbox</title>
+<style>
+/* A dark instrument panel, so the map is the only bright thing on screen. */
+:root{
+  --bg:#0B0E0C; --panel:#121714; --panel2:#1A211C; --line:#28322B;
+  --ink:#E7EDE6; --ink2:#9CA79D; --ink3:#6C766E;
+  --accent:#5FC0B8; --accent2:#0F3A38;
+  --war:#E0714F; --plague:#B08BD8; --invention:#D9AC4A; --society:#5FB884;
+  --birth:#9CA79D; --death:#6C766E; --milestone:#5FC0B8;
+  --w:#1B2F3B; --g:#2C3A26; --f:#33472C; --m:#3B3D39;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --ui:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:var(--ink);
+  font-family:var(--ui);font-size:13px;-webkit-font-smoothing:antialiased}
+button{font-family:var(--ui);font-size:12px;color:var(--ink);background:var(--panel2);
+  border:1px solid var(--line);border-radius:3px;padding:5px 10px;cursor:pointer}
+button:hover{background:var(--line)}
+button.on{background:var(--accent2);border-color:var(--accent);color:var(--accent)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+#stage{position:fixed;inset:0}
+#map{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;
+  image-rendering:pixelated}
+#map.grabbing{cursor:grabbing}
+#map.tool{cursor:crosshair}
+
+.panel{position:fixed;background:rgba(18,23,20,.94);border:1px solid var(--line);
+  border-radius:4px;backdrop-filter:blur(8px)}
+.hd{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ink3);padding:7px 10px;border-bottom:1px solid var(--line);
+  display:flex;justify-content:space-between;align-items:center;gap:8px}
+.hd button{padding:1px 6px;font-size:11px;line-height:1.3}
+
+/* top bar */
+#top{top:10px;left:10px;right:10px;display:flex;align-items:center;gap:14px;
+  padding:8px 12px;flex-wrap:wrap}
+#top .brand{font-family:var(--mono);font-size:12px;letter-spacing:.24em;text-transform:uppercase}
+#top .clock{font-family:var(--mono);font-size:12px;color:var(--accent);
+  font-variant-numeric:tabular-nums}
+#top .quick{font-family:var(--mono);font-size:11.5px;color:var(--ink2);display:flex;
+  gap:14px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+#top .quick b{color:var(--ink);font-weight:600}
+#top .spacer{flex:1}
+
+/* left tools */
+#left{top:64px;left:10px;width:186px;max-height:calc(100vh - 84px);overflow-y:auto}
+.group{padding:8px 10px;border-bottom:1px solid var(--line)}
+.group:last-child{border-bottom:none}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.grid button{padding:6px 4px;font-size:11px}
+.rowline{display:flex;align-items:center;gap:7px;margin-top:6px;
+  font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+input[type=range]{flex:1;accent-color:var(--accent);height:16px}
+
+/* right inspector */
+#right{top:64px;right:10px;width:264px;max-height:calc(100vh - 84px);
+  display:flex;flex-direction:column}
+#inspBody{padding:10px;overflow-y:auto;font-size:12.5px;max-height:46vh}
+#inspBody h3{margin:0 0 1px;font-size:14px}
+#inspBody .sub{color:var(--ink3);font-family:var(--mono);font-size:10.5px;
+  text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
+.kv{display:flex;justify-content:space-between;gap:8px;font-family:var(--mono);
+  font-size:11.5px;padding:1px 0;font-variant-numeric:tabular-nums}
+.kv span:first-child{color:var(--ink2)}
+.tags{margin-top:7px;font-family:var(--mono);font-size:10px;color:var(--ink3);line-height:1.6}
+.who{border-top:1px solid var(--line);margin-top:8px;padding-top:7px;
+  font-family:var(--mono);font-size:11px;line-height:1.65;color:var(--ink2)}
+.hint{color:var(--ink3);font-style:italic}
+#aiBody{padding:10px;overflow-y:auto;max-height:30vh;color:var(--ink2);line-height:1.6}
+#aiBody p{margin:0 0 8px}
+
+/* log */
+#log{bottom:10px;left:10px;width:400px;max-width:calc(100vw - 20px)}
+#logBody{height:140px;overflow-y:auto;padding:6px 10px;margin:0;list-style:none;
+  font-family:var(--mono);font-size:11px;line-height:1.65}
+#logBody li{display:flex;gap:8px}
+#logBody .d{font-variant-numeric:tabular-nums;white-space:nowrap}
+#logBody .m{color:var(--ink2)}
+
+#tip{position:fixed;pointer-events:none;background:rgba(11,14,12,.95);
+  border:1px solid var(--line);border-radius:3px;padding:4px 8px;font-family:var(--mono);
+  font-size:11px;color:var(--ink2);display:none;z-index:50;white-space:nowrap}
+.collapsed .body{display:none}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head><body>
+
+<div id="stage"><canvas id="map"></canvas></div>
+<div id="tip"></div>
+
+<div class="panel" id="top">
+  <span class="brand">Worldbox</span>
+  <span class="clock" id="clock">Year 0</span>
+  <button id="playBtn">Pause</button>
+  <span class="quick" id="quick"></span>
+  <span class="spacer"></span>
+  <span class="quick"><span id="zlabel">1.0x</span></span>
+  <button id="fit">Fit</button>
+</div>
+
+<div class="panel" id="left">
+  <div class="hd">Layers</div>
+  <div class="group grid">
+    <button class="lyr on" data-layer="none">Terrain</button>
+    <button class="lyr" data-layer="territory">Territory</button>
+    <button class="lyr" data-layer="fertility">Farmland</button>
+    <button class="lyr" data-layer="food">Food</button>
+  </div>
+  <div class="hd">Intervene</div>
+  <div class="group grid">
+    <button class="tl" data-tool="spawn">Spawn</button>
+    <button class="tl" data-tool="bless">Bless</button>
+    <button class="tl" data-tool="blight">Blight</button>
+    <button class="tl" data-tool="smite">Smite</button>
+    <button class="tl" data-tool="plague">Plague</button>
+    <button class="tl" data-tool="heal">Heal</button>
+  </div>
+  <div class="group">
+    <div class="rowline">Radius <input type="range" id="radius" min="1" max="10" value="3">
+      <span id="rlabel">3</span></div>
+    <div class="rowline" style="color:var(--ink3)">Click a tool, then the map.<br>Esc cancels.</div>
+  </div>
+  <div class="hd">Speed</div>
+  <div class="group grid">
+    <button class="sp" data-delay="0.25">Slow</button>
+    <button class="sp on" data-delay="0.06">Normal</button>
+    <button class="sp" data-delay="0.01">Fast</button>
+    <button class="sp" data-delay="0">Max</button>
+  </div>
+</div>
+
+<div class="panel" id="right">
+  <div class="hd">Inspector <button id="clearSel">clear</button></div>
+  <div id="inspBody"><span class="hint">Click the map to inspect. Drag to pan, scroll to zoom.</span></div>
+  <div class="hd">History <button id="explain">Ask AI</button></div>
+  <div id="aiBody"><span class="hint">Ask for a written account of the run so far.</span></div>
+</div>
+
+<div class="panel" id="log"><div class="hd">Events <button id="logToggle">hide</button></div>
+  <ul id="logBody" class="body"></ul></div>
+
+<script>
+(function(){
+"use strict";
+var TER=["--w","--g","--f","--m"];
+var W=0,H=0,terrain=null,seed=0,lastState=null,lastDay=-1,running=true;
+var scale=6, ox=0, oy=0;            // world -> screen: pixels per tile, and pan
+var layer="none", overlayRows=null, tool=null, radius=3, sel=null;
+
+var cv=document.getElementById("map"), ctx=cv.getContext("2d");
+function tok(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+function esc(t){return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;")}
+function tribeColour(i){return i<0?null:"hsl("+((i*47)%360)+" 62% 58%)"}
+
+/* ---- sprites -------------------------------------------------------- */
+var PERSON=[".#.","###",".#.","#.#"];
+var BUILD=[["..x..",".x#x.","x###x","#####"],
+           [".xxx.","x###x","#o#o#","#####"],
+           ["x.xxx.x","xx###xx","x#o#o#x","x#####x","xxxxxxx"],
+           [".x...x.","xxx.xxx","x#xxx#x","x#o#o#x","x#####x","x#o#o#x","xxxxxxx"],
+           ["x.x.x.x.x","xxxxxxxxx","x#o#o#o#x","x#######x","x#o#o#o#x","x#######x","x#o#o#o#x","xxxxxxxxx"]];
+var cache={};
+function shade(c,d){var m=/hsl\((\d+) (\d+)% (\d+)%\)/.exec(c);if(!m)return c;
+  return "hsl("+m[1]+" "+m[2]+"% "+Math.max(6,Math.min(94,+m[3]+d))+"%)"}
+function sprite(b,c,s){var k=b.length+"_"+b[0].length+c+s;if(cache[k])return cache[k];
+  var e=document.createElement("canvas");e.width=b[0].length*s;e.height=b.length*s;
+  var g=e.getContext("2d"),f={"#":c,"o":shade(c,14),"x":shade(c,-24)};
+  for(var y=0;y<b.length;y++)for(var x=0;x<b[0].length;x++){var ch=b[y][x];
+    if(ch===".")continue;g.fillStyle=f[ch]||c;g.fillRect(x*s,y*s,s,s)}
+  cache[k]=e;return e}
+
+/* ---- camera --------------------------------------------------------- */
+function resize(){var d=window.devicePixelRatio||1;
+  cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);
+  ctx.setTransform(d,0,0,d,0,0);ctx.imageSmoothingEnabled=false;render()}
+function fit(){scale=Math.max(2,Math.min(innerWidth/W,(innerHeight-40)/H));
+  ox=(innerWidth-W*scale)/2;oy=(innerHeight-H*scale)/2;cache={};render()}
+function clampPan(){var mw=W*scale,mh=H*scale;
+  ox=mw<innerWidth?(innerWidth-mw)/2:Math.min(0,Math.max(innerWidth-mw,ox));
+  oy=mh<innerHeight?(innerHeight-mh)/2:Math.min(0,Math.max(innerHeight-mh,oy))}
+function toTile(px,py){return{x:Math.floor((px-ox)/scale),y:Math.floor((py-oy)/scale)}}
+
+/* ---- drawing -------------------------------------------------------- */
+function render(){
+  if(!terrain)return;
+  var cols=TER.map(tok);
+  ctx.fillStyle=tok("--bg");ctx.fillRect(0,0,innerWidth,innerHeight);
+  var x0=Math.max(0,Math.floor(-ox/scale)), x1=Math.min(W,Math.ceil((innerWidth-ox)/scale));
+  var y0=Math.max(0,Math.floor(-oy/scale)), y1=Math.min(H,Math.ceil((innerHeight-oy)/scale));
+  var s=Math.ceil(scale);
+
+  for(var y=y0;y<y1;y++){var row=terrain[y];
+    for(var x=x0;x<x1;x++){
+      ctx.fillStyle=cols[+row[x]];
+      ctx.fillRect(Math.floor(ox+x*scale),Math.floor(oy+y*scale),s,s);
+    }}
+
+  if(layer!=="none"&&overlayRows){
+    for(var y2=y0;y2<y1;y2++)for(var x2=x0;x2<x1;x2++){
+      var v=overlayRows[y2][x2],fill=null;
+      if(layer==="territory"){ if(v>=0) fill=tribeColour(v); if(fill)ctx.globalAlpha=.34 }
+      else if(layer==="fertility"){ if(v>1.01){ fill="#7FD07F"; ctx.globalAlpha=Math.min(.6,(v-1)*.5) } }
+      else if(layer==="food"){ if(v>0.02){ fill="#E8C46A"; ctx.globalAlpha=Math.min(.55,v*.55) } }
+      if(fill){ctx.fillStyle=fill;
+        ctx.fillRect(Math.floor(ox+x2*scale),Math.floor(oy+y2*scale),s,s);ctx.globalAlpha=1}
+    }}
+
+  if(lastState)drawEntities(lastState);
+  if(sel){ctx.strokeStyle=tok("--accent");ctx.lineWidth=Math.max(1.5,scale*.16);
+    ctx.strokeRect(ox+sel.x*scale,oy+sel.y*scale,scale,scale)}
+}
+function drawEntities(st){
+  var grey=tok("--ink3");
+  var bs=Math.max(1,Math.round(scale/4)), ps=Math.max(1,Math.round(scale/5));
+  var L=st.settlementList;
+  for(var k=0;k<L.length;k+=4){
+    var sx=ox+L[k]*scale, sy=oy+L[k+1]*scale;
+    if(sx<-40||sy<-40||sx>innerWidth+40||sy>innerHeight+40)continue;
+    var sp=sprite(BUILD[Math.max(0,Math.min(4,L[k+2]))],tribeColour(L[k+3])||grey,bs);
+    ctx.drawImage(sp,Math.round(sx+scale/2-sp.width/2),Math.round(sy+scale/2-sp.height/2));
+  }
+  var A=st.agents;
+  for(var j=0;j<A.length;j+=3){
+    var axp=ox+A[j]*scale, ayp=oy+A[j+1]*scale;
+    if(axp<-20||ayp<-20||axp>innerWidth+20||ayp>innerHeight+20)continue;
+    var p=sprite(PERSON,tribeColour(A[j+2])||grey,ps);
+    ctx.drawImage(p,Math.round(axp+scale/2-p.width/2),Math.round(ayp+scale/2-p.height/2));
+  }
+}
+
+/* ---- interaction ---------------------------------------------------- */
+var dragging=false,moved=false,lastX=0,lastY=0;
+cv.addEventListener("mousedown",function(e){dragging=true;moved=false;
+  lastX=e.clientX;lastY=e.clientY;cv.classList.add("grabbing")});
+addEventListener("mouseup",function(e){
+  cv.classList.remove("grabbing");
+  if(dragging&&!moved)handleClick(e);
+  dragging=false});
+addEventListener("mousemove",function(e){
+  if(dragging){var dx=e.clientX-lastX,dy=e.clientY-lastY;
+    if(Math.abs(dx)+Math.abs(dy)>3)moved=true;
+    ox+=dx;oy+=dy;lastX=e.clientX;lastY=e.clientY;clampPan();render();return}
+  var t=toTile(e.clientX,e.clientY),tip=document.getElementById("tip");
+  if(t.x<0||t.y<0||t.x>=W||t.y>=H){tip.style.display="none";return}
+  tip.style.display="block";tip.style.left=(e.clientX+14)+"px";tip.style.top=(e.clientY+14)+"px";
+  tip.textContent="("+t.x+", "+t.y+")"+(tool?"  "+tool:"");
+});
+cv.addEventListener("wheel",function(e){e.preventDefault();
+  var t=toTile(e.clientX,e.clientY);
+  var next=Math.max(2,Math.min(40,scale*(e.deltaY<0?1.15:1/1.15)));
+  ox=e.clientX-(t.x+.5)*next; oy=e.clientY-(t.y+.5)*next;
+  scale=next;cache={};clampPan();render();
+  document.getElementById("zlabel").textContent=(scale/6).toFixed(1)+"x";
+},{passive:false});
+
+function handleClick(e){
+  var t=toTile(e.clientX,e.clientY);
+  if(t.x<0||t.y<0||t.x>=W||t.y>=H)return;
+  if(tool){
+    fetch("/act?tool="+tool+"&x="+t.x+"&y="+t.y+"&radius="+radius)
+      .then(function(r){return r.json()}).then(function(){ if(layer!=="none")loadOverlay() });
+    return;
+  }
+  sel=t;
+  fetch("/inspect?x="+t.x+"&y="+t.y).then(function(r){return r.json()}).then(showInspect);
+}
+addEventListener("keydown",function(e){
+  if(e.key==="Escape"){tool=null;syncTools();cv.classList.remove("tool")}
+  if(e.key===" "){e.preventDefault();togglePlay()}
+});
+
+/* ---- panels --------------------------------------------------------- */
+function kv(a,b){return '<div class="kv"><span>'+a+'</span><span>'+b+'</span></div>'}
+function showInspect(d){
+  var h="",s=d.settlement;
+  if(s){
+    h+="<h3>"+esc(s.name)+"</h3><div class='sub'>"+esc(s.level)+" &middot; "+esc(s.tribe)+"</div>";
+    h+=kv("People",s.population)+kv("Founded","day "+s.founded)+
+       kv("Granary",s.store+" ("+s.storePct+"%)");
+    if(s.era)h+=kv("Era",esc(s.era));
+    if(s.chieftain)h+=kv("Chieftain",esc(s.chieftain)+" ("+s.chieftainAge+")");
+    if(s.battlesWon+s.battlesLost)h+=kv("Battles",s.battlesWon+"W / "+s.battlesLost+"L");
+    if(s.warDead)h+=kv("War dead",s.warDead);
+    if(s.plagueDead)h+=kv("Plague dead",s.plagueDead);
+    var roles=Object.keys(s.roles||{}).map(function(k){return k+" "+s.roles[k]}).join("  ");
+    if(roles)h+="<div class='tags'>"+esc(roles)+"</div>";
+    if(s.techs&&s.techs.length)h+="<div class='tags'>"+esc(s.techs.join(", "))+"</div>";
+  }else{
+    h+="<h3>("+d.x+", "+d.y+")</h3><div class='sub'>"+esc(d.terrain)+"</div>";
+    h+=kv("Food",d.food)+(d.fertility!==undefined?kv("Farmland",d.fertility+"x"):"");
+  }
+  if(d.people&&d.people.length){h+="<div class='who'>";
+    d.people.forEach(function(p){h+="<div>"+esc(p.name)+" &middot; "+p.age+"y "+esc(p.role)+
+      " &middot; "+esc(p.goal)+(p.ill?" &middot; <span style='color:var(--plague)'>"+esc(p.ill)+"</span>":"")+"</div>"});
+    h+="</div>"}
+  else if(!s)h+="<div class='who hint'>Nobody here.</div>";
+  document.getElementById("inspBody").innerHTML=h;
+}
+function quick(s){
+  document.getElementById("quick").innerHTML=
+    "Pop <b>"+s.population.toLocaleString()+"</b>"+
+    "Tribes <b>"+s.tribes+"</b>"+
+    "Towns <b>"+s.settlements+"</b>"+
+    "Tech <b>"+s.techs+"/16</b>"+
+    "Wars <b>"+s.wars+"</b>"+
+    "Ill <b>"+s.ill+"</b>"+
+    "Food <b>"+Math.round(s.food*100)+"%</b>";
+  document.getElementById("clock").textContent="Year "+s.year+" · day "+s.day.toLocaleString();
+}
+var KIND={war:"--war",plague:"--plague",invention:"--invention",society:"--society",
+  birth:"--birth",death:"--death",milestone:"--milestone"};
+var logEl=document.getElementById("logBody");
+function addLog(items){if(!items||!items.length)return;
+  var stick=logEl.scrollTop+logEl.clientHeight>=logEl.scrollHeight-16;
+  items.forEach(function(e){var li=document.createElement("li");
+    li.innerHTML="<span class='d' style='color:var("+(KIND[e.k]||"--ink3")+")'>"+e.d+"</span>"+
+                 "<span class='m'>"+esc(e.m)+"</span>";logEl.appendChild(li)});
+  while(logEl.children.length>250)logEl.removeChild(logEl.firstChild);
+  if(stick)logEl.scrollTop=logEl.scrollHeight}
+
+/* ---- controls ------------------------------------------------------- */
+function syncTools(){document.querySelectorAll(".tl").forEach(function(b){
+  b.classList.toggle("on",b.dataset.tool===tool)});
+  cv.classList.toggle("tool",!!tool)}
+document.querySelectorAll(".tl").forEach(function(b){b.addEventListener("click",function(){
+  tool=(tool===b.dataset.tool)?null:b.dataset.tool;syncTools()})});
+document.querySelectorAll(".lyr").forEach(function(b){b.addEventListener("click",function(){
+  layer=b.dataset.layer;
+  document.querySelectorAll(".lyr").forEach(function(o){o.classList.toggle("on",o===b)});
+  if(layer==="none"){overlayRows=null;render()}else loadOverlay()})});
+document.querySelectorAll(".sp").forEach(function(b){b.addEventListener("click",function(){
+  fetch("/control?action=speed&value="+b.dataset.delay);
+  document.querySelectorAll(".sp").forEach(function(o){o.classList.toggle("on",o===b)})})});
+document.getElementById("radius").addEventListener("input",function(){
+  radius=+this.value;document.getElementById("rlabel").textContent=radius});
+document.getElementById("fit").addEventListener("click",fit);
+document.getElementById("clearSel").addEventListener("click",function(){
+  sel=null;document.getElementById("inspBody").innerHTML="<span class='hint'>Click the map to inspect.</span>";render()});
+document.getElementById("logToggle").addEventListener("click",function(){
+  var p=document.getElementById("log");p.classList.toggle("collapsed");
+  this.textContent=p.classList.contains("collapsed")?"show":"hide"});
+function togglePlay(){fetch("/control?action="+(running?"pause":"resume")).then(poll)}
+document.getElementById("playBtn").addEventListener("click",togglePlay);
+document.getElementById("explain").addEventListener("click",function(){
+  var el=document.getElementById("aiBody");
+  el.innerHTML="<span class='hint'>Writing...</span>";
+  fetch("/explain").then(function(r){return r.json()}).then(function(d){
+    if(!d.ok){el.innerHTML="<span class='hint'>"+esc(d.error)+"</span>";return}
+    el.innerHTML=d.text.split(/\n+/).map(function(p){
+      return "<p>"+esc(p.replace(/\*\*/g,"").replace(/^#+\s*/,""))+"</p>"}).join("")})
+    .catch(function(){el.innerHTML="<span class='hint'>Could not reach the simulation.</span>"})});
+
+function loadOverlay(){fetch("/overlay?kind="+layer).then(function(r){return r.json()})
+  .then(function(d){overlayRows=d.rows;render()})}
+
+/* ---- polling -------------------------------------------------------- */
+function poll(){fetch("/state?since="+lastDay).then(function(r){return r.json()}).then(function(s){
+  lastDay=s.day;running=s.running;lastState=s;
+  document.getElementById("playBtn").textContent=running?"Pause":"Play";
+  quick(s);addLog(s.log);render();
+}).catch(function(){})}
+
+addEventListener("resize",resize);
+fetch("/world").then(function(r){return r.json()}).then(function(w){
+  W=w.width;H=w.height;terrain=w.terrain;seed=w.seed;
+  resize();fit();poll();setInterval(poll,500);
+  setInterval(function(){if(layer!=="none")loadOverlay()},4000);
+});
+})();
+</script></body></html>
