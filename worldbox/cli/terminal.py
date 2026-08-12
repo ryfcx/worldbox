@@ -385,7 +385,8 @@ Commands
   towns              Every settlement and its granary
   chronicle [n]      The permanent history of the world (default 30)
   narrate            Have an AI write up the chronicle as a history
-  view [days]        Build the graphical map and open it in a browser
+  livemap            Open a browser map that updates as the simulation runs
+  view [days]        Build a recorded map of the run so far and open it
   export [days]      Record a run to JSON for the visual map viewer
   events [n]         Display the n most recent events (default 15)
   help               Show this help
@@ -406,6 +407,7 @@ class Terminal:
         self.engine = engine
         self.runner = SimulationRunner(engine)
         self.should_exit = False
+        self._live_server = None  # Created lazily by the livemap command.
         self.commands: Dict[str, Callable[[List[str]], None]] = {
             "start": self.cmd_start,
             "live": self.cmd_start,
@@ -428,6 +430,8 @@ class Terminal:
             "narrate": self.cmd_narrate,
             "export": self.cmd_export,
             "view": self.cmd_view,
+            "livemap": self.cmd_livemap,
+            "live": self.cmd_livemap,
             "gui": self.cmd_view,
             "map": self.cmd_view,
             "history": self.cmd_chronicle,
@@ -453,6 +457,8 @@ class Terminal:
                 continue
             self.dispatch(raw)
         self.runner.pause()
+        if self._live_server is not None:
+            self._live_server.stop()
         print("Goodbye.")
 
     def dispatch(self, raw: str) -> None:
@@ -631,6 +637,30 @@ class Terminal:
         for line in ai_narrator.wrap(result.text):
             print(f"  {line}")
         print(rule)
+
+    def cmd_livemap(self, args: List[str]) -> None:
+        """Serve a browser map that updates while the simulation runs."""
+        import webbrowser
+
+        from .webview import LiveServer
+
+        if self._live_server is None:
+            self._live_server = LiveServer(self.engine, self.runner)
+            try:
+                url = self._live_server.start()
+            except OSError as error:
+                self._live_server = None
+                print(f"Could not start the live map: {error}")
+                return
+            print(f"Live map serving at {url}")
+            webbrowser.open(url)
+        else:
+            print(f"Live map already serving at {self._live_server.url}")
+
+        # A live map with a paused world shows nothing moving, so start ticking.
+        if not self.runner.running:
+            self.runner.start()
+            print("Simulation running. Use the browser controls, or 'pause' here.")
 
     def cmd_view(self, args: List[str]) -> None:
         """Build the graphical map from the current world and open it."""

@@ -231,6 +231,36 @@ class SettlementSystem:
         settlement.food_store += stored
         return stored
 
+    def cultivate(
+        self,
+        settlement: Settlement,
+        farmers: Sequence[Agent],
+        world,
+        knowledge: Knowledge,
+    ) -> float:
+        """Farmers improve the land around their settlement.
+
+        This is the mechanism by which technology raises carrying capacity:
+        better farming knowledge lifts the fertility ceiling, cultivated tiles
+        both hold and regrow more food, and the population that land can
+        support rises with it.
+        """
+        if not farmers:
+            return 0.0
+        config = self.config
+        ceiling = config.max_fertility + knowledge.effects.food_yield * config.fertility_per_tech
+        tiles = list(world.tiles_within(settlement.x, settlement.y, config.cultivation_radius))
+        if not tiles:
+            return 0.0
+
+        # Effort is shared across the fields, so a hamlet improves its few tiles
+        # quickly while a city spreads the same work thinner.
+        effort = len(farmers) * config.cultivation_per_farmer
+        per_tile = effort / len(tiles)
+        for x, y in tiles:
+            world.resources.cultivate(x, y, per_tile, ceiling)
+        return effort
+
     def draw_ration(self, settlement: Settlement, amount: float) -> float:
         """Take a ration out of the granary, returning what was actually available."""
         taken = min(settlement.food_store, max(0.0, amount))

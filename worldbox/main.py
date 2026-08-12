@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import sys
+import time
 from typing import List, Optional
 
 from .cli.terminal import Terminal, render_dashboard, render_stats
@@ -43,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="DAYS",
         help="Simulate DAYS days (default 20000), build the map viewer and open it.",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Open a browser map that updates as the simulation runs, from day zero.",
     )
     parser.add_argument(
         "--no-open",
@@ -148,6 +154,39 @@ def run_viewer(engine: SimulationEngine, days: int, open_browser: bool = True) -
     return 0
 
 
+def run_live(engine: SimulationEngine, open_browser: bool = True) -> int:
+    """Serve a live browser map and run the simulation until interrupted."""
+    import webbrowser
+
+    from .cli.webview import LiveServer
+    from .simulation.engine import SimulationRunner
+
+    runner = SimulationRunner(engine)
+    server = LiveServer(engine, runner)
+    try:
+        url = server.start()
+    except OSError as error:
+        print(f"Could not start the live map: {error}", file=sys.stderr)
+        return 1
+
+    print(f"Live map: {url}")
+    if open_browser:
+        webbrowser.open(url)
+    runner.set_delay(engine.config.simulation.autorun_tick_seconds)
+    runner.start()
+    print("Simulation running from day zero. Press Ctrl-C to stop.")
+
+    try:
+        while True:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\nStopping.")
+    finally:
+        runner.pause()
+        server.stop()
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Program entry point. Returns a process exit code."""
     args = build_parser().parse_args(argv)
@@ -157,6 +196,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     except (ValueError, WorldGenerationError) as error:
         print(f"Could not start Worldbox: {error}", file=sys.stderr)
         return 1
+
+    if args.live:
+        return run_live(engine, open_browser=not args.no_open)
 
     if args.view is not None:
         return run_viewer(engine, args.view, open_browser=not args.no_open)

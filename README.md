@@ -74,9 +74,32 @@ Year    6 (day   2337) | Dunylmund Post grew into a Village
 Year    6 (day   2387) | Black Plague killed 18 over 14 days
 ```
 
+## Editing how agents think
+
+`worldbox/rules.py` is the one file to edit. Agents score each thing they could
+do from 0 to 1 and take the highest. Three ways in:
+
+- Tune `WEIGHTS` at the top — raise `fight` and the world gets more violent.
+- Rewrite a scorer — they're a few lines each.
+- Add an action: put it in `Goal`, write a scorer, teach `execute()` to do it.
+
+Then check what changed: `python3 tools/compare_runs.py --days 6000`
+
 ## Seeing it
 
-One command:
+Live, while it runs:
+
+```bash
+python3 -m worldbox.main --live
+```
+
+Opens a browser map that updates twice a second. Zoom with the `+`/`-` buttons
+(or ctrl-scroll), click anywhere to inspect that tile — settlement, tribe,
+chieftain, granary, professions, and whoever is standing there — and press
+**Ask AI** for a written history of the run so far. `livemap` does the same from
+inside the prompt.
+
+Recorded, to scrub through afterwards:
 
 ```bash
 python3 -m worldbox.main --view 20000

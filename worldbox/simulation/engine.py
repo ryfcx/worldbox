@@ -253,6 +253,9 @@ class SimulationEngine:
 
         # Phase 1: environment, then today's tribe membership and territory.
         self.world.update(day)
+        # Fields nobody works go back to scrub, so a collapse costs a
+        # civilisation the carrying capacity it built.
+        self.world.resources.relax_fertility(self.config.settlements.fertility_decay)
         for extinct in self.groups.refresh(self.agents):
             self.diplomacy.forget_group(extinct.id)
             self.settlements.abandon(extinct.id, day)
@@ -748,6 +751,7 @@ class SimulationEngine:
                 agent for agent in members if agent.role == Role.FARMER.value
             ]
             self.settlements.harvest(settlement, farmers, self.world, group.knowledge)
+            self.settlements.cultivate(settlement, farmers, self.world, group.knowledge)
             self.settlements.spoil(settlement, group.knowledge)
             settlement.peak_population = max(settlement.peak_population, group.size)
 

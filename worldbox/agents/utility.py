@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 from ..config import Config
 
 if TYPE_CHECKING:  # Avoids a circular import at runtime.
+    from ..rules import Situation
     from ..world.world import World
     from .agent import Agent
     from .behavior import Goal, SocialContext
@@ -64,6 +65,63 @@ class Decision:
         return sorted(self.scores.items(), key=lambda item: -item[1])
 
 
+def build_situation(
+    agent: "Agent",
+    world: "World",
+    config: Config,
+    day: int,
+    social: Optional["SocialContext"] = None,
+) -> "Situation":
+    """Work out everything the scorers in :mod:`worldbox.rules` need.
+
+    All the arithmetic lives here so that the scorers themselves stay short
+    enough to read and edit without knowing how the simulation is wired.
+    """
+    from ..rules import Situation
+    from .behavior import SocialContext, can_reproduce
+
+    social = social or SocialContext()
+    weights = config.utility
+    needs = agent.needs
+    agent_config = config.agents
+
+    food_here = world.resources.food_at(agent.x, agent.y)
+    threat = social.threat
+
+    # Willingness to stand and fight, rather than a fixed health cutoff.
+    courage = 0.0
+    if threat is not None:
+        relative_strength = needs.health / max(1.0, threat.needs.health)
+        courage = clamp01(
+            0.5 * clamp01(relative_strength)
+            + 0.5 * agent.aggression
+            - weights.caution_weight * agent.caution
+        )
+        if not agent.is_adult(agent_config, config.simulation.days_per_year):
+            courage *= weights.child_courage  # Children rarely hold their ground.
+
+    return Situation(
+        agent=agent,
+        world=world,
+        config=config,
+        day=day,
+        hunger=curve(needs.hunger / 100.0, weights.hunger_exponent),
+        tiredness=curve(1.0 - needs.energy / 100.0, weights.energy_exponent),
+        frailty=1.0 - clamp01(needs.health / 100.0),
+        comfort=clamp01(
+            (1.0 - needs.hunger / 100.0)
+            * (needs.energy / 100.0)
+            * (needs.health / 100.0)
+        ),
+        food_here=food_here,
+        can_eat=food_here >= config.resources.min_food_to_eat,
+        threat=threat,
+        courage=courage,
+        can_breed=can_reproduce(agent, config, day, social.reproduction_cooldown_scale),
+        is_adult=agent.is_adult(agent_config, config.simulation.days_per_year),
+    )
+
+
 def score_actions(
     agent: "Agent",
     world: "World",
@@ -73,71 +131,30 @@ def score_actions(
 ) -> Dict["Goal", float]:
     """Score every action this agent could take today, on 0..1.
 
-    Pure and side-effect free: it reads state and returns numbers, which makes
-    it straightforward to unit test and to log.
+    The scoring itself lives in :mod:`worldbox.rules`, which is the file meant
+    to be edited. Each registered scorer is multiplied by its weight, and any
+    scoring zero is dropped as "not an option right now".
     """
-    from .behavior import Goal, SocialContext, can_reproduce
+    from ..rules import SCORERS, WEIGHTS
 
-    social = social or SocialContext()
-    weights = config.utility
-    needs = agent.needs
-    agent_config = config.agents
-
-    # --- the underlying pressures, each 0..1 -------------------------------
-    hunger = curve(needs.hunger / 100.0, weights.hunger_exponent)
-    tiredness = curve(1.0 - needs.energy / 100.0, weights.energy_exponent)
-    frailty = 1.0 - clamp01(needs.health / 100.0)
-
-    food_here = world.resources.food_at(agent.x, agent.y)
-    can_eat_here = food_here >= config.resources.min_food_to_eat
+    situation = build_situation(agent, world, config, day, social)
 
     scores: Dict[Goal, float] = {}
+    for goal, score_function in SCORERS.items():
+        try:
+            raw = score_function(situation)
+        except Exception:
+            # A broken custom scorer should sideline that one action, not kill
+            # the agent -- this file is meant to be edited by hand.
+            continue
+        if raw <= 0.0:
+            continue
+        scores[goal] = WEIGHTS.get(goal.value, 1.0) * raw
 
-    # --- survival ----------------------------------------------------------
-    threat = social.threat
-    if threat is not None:
-        # Willingness to stand and fight, rather than a fixed health cutoff.
-        relative_strength = needs.health / max(1.0, threat.needs.health)
-        courage = clamp01(
-            0.5 * clamp01(relative_strength)
-            + 0.5 * agent.aggression
-            - weights.caution_weight * agent.caution
-        )
-        if not agent.is_adult(agent_config, config.simulation.days_per_year):
-            courage *= weights.child_courage  # Children rarely stand their ground.
+    if not scores:  # Every scorer declined; wandering is always possible.
+        from .behavior import Goal as _Goal
 
-        scores[Goal.FIGHT] = weights.fight * courage
-        scores[Goal.FLEE] = weights.flee * clamp01(
-            (1.0 - courage) + frailty * weights.frailty_flee
-        )
-
-    # --- appetite ----------------------------------------------------------
-    if can_eat_here:
-        scores[Goal.EAT] = weights.eat * hunger
-    else:
-        # No food underfoot, so the option is to go looking. Industrious agents
-        # set out sooner; the incurious hold out for food to come to them.
-        scores[Goal.SEEK_FOOD] = weights.seek_food * hunger * (
-            weights.industry_floor + (1.0 - weights.industry_floor) * agent.industry
-        )
-
-    # --- rest --------------------------------------------------------------
-    scores[Goal.REST] = weights.rest * tiredness
-
-    # --- reproduction ------------------------------------------------------
-    if can_reproduce(agent, config, day, social.reproduction_cooldown_scale):
-        comfort = clamp01(
-            (1.0 - needs.hunger / 100.0)
-            * (needs.energy / 100.0)
-            * (needs.health / 100.0)
-        )
-        scores[Goal.SEEK_MATE] = weights.seek_mate * comfort
-
-    # --- the floor ---------------------------------------------------------
-    # Wandering is always possible and always cheap, so it wins only when
-    # nothing else is pressing -- which is exactly what it should mean.
-    scores[Goal.WANDER] = weights.wander_baseline
-
+        scores[_Goal.WANDER] = WEIGHTS.get("wander", 0.06)
     return scores
 
 

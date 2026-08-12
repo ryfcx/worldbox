@@ -281,6 +281,21 @@ class SettlementConfig:
     # Fraction of the granary lost each day; storage technology reduces it.
     spoilage_rate: float = 0.012
 
+    # --- cultivation -------------------------------------------------------
+    # Farming does not merely make food go further; it makes land yield more.
+    # Without this, technology cannot raise the world's carrying capacity and
+    # population plateaus at whatever the wild land supports, however advanced
+    # a civilisation becomes.
+    cultivation_radius: int = 4
+    # Fertility added per farmer per day, spread over the cultivated tiles.
+    cultivation_per_farmer: float = 0.150
+    # Ceiling on fertility, before technology. 1.0 is wild land.
+    max_fertility: float = 2.2
+    # Each point of food-yield technology raises that ceiling by this much.
+    fertility_per_tech: float = 1.6
+    # Fertility lost per day on land nobody is farming.
+    fertility_decay: float = 0.0006
+
     # A hungry member near the settlement may draw this much from the store.
     ration_size: float = 5.0
     # How far from home a member can still claim a ration.

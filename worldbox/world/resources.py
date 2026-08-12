@@ -7,7 +7,7 @@ nothing about agents -- callers take food from it and it simply depletes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
 
 from ..config import ResourceConfig
@@ -25,6 +25,10 @@ class ResourceField:
     food: FloatGrid
     capacity: FloatGrid
     regen: FloatGrid
+    # Cultivation multiplier per tile, 1.0 for wild land. Farming raises it,
+    # which is how technology lifts the world's carrying capacity instead of
+    # only making each mouthful go further.
+    fertility: FloatGrid = field(default_factory=list)
 
     @classmethod
     def from_terrain(cls, grid: Grid, config: ResourceConfig) -> "ResourceField":
@@ -42,7 +46,11 @@ class ResourceField:
             regen.append(regen_row)
             food.append([value * config.initial_fill for value in capacity_row])
 
-        return cls(width=width, height=height, food=food, capacity=capacity, regen=regen)
+        fertility = [[1.0] * width for _ in range(height)]
+        return cls(
+            width=width, height=height, food=food, capacity=capacity,
+            regen=regen, fertility=fertility,
+        )
 
     # -- queries ------------------------------------------------------------
 
@@ -56,9 +64,39 @@ class ResourceField:
         """Sum of all food currently in the world."""
         return sum(sum(row) for row in self.food)
 
+    def effective_capacity(self, x: int, y: int) -> float:
+        """What a tile can hold once cultivation is taken into account."""
+        return self.capacity[y][x] * self.fertility[y][x]
+
     def total_capacity(self) -> float:
-        """Sum of every tile's maximum food."""
-        return sum(sum(row) for row in self.capacity)
+        """Sum of every tile's maximum food, including cultivation."""
+        return sum(
+            self.capacity[y][x] * self.fertility[y][x]
+            for y in range(self.height)
+            for x in range(self.width)
+        )
+
+    def cultivate(self, x: int, y: int, amount: float, ceiling: float) -> None:
+        """Improve a tile's fertility, up to ``ceiling``."""
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            return
+        if self.capacity[y][x] <= 0.0:
+            return  # Water and rock cannot be farmed.
+        self.fertility[y][x] = min(ceiling, self.fertility[y][x] + amount)
+
+    def relax_fertility(self, rate: float) -> None:
+        """Let uncultivated land drift back toward wild fertility.
+
+        Abandoned fields go back to scrub, so a collapsed civilisation loses the
+        carrying capacity it built.
+        """
+        if rate <= 0.0:
+            return
+        for y in range(self.height):
+            row = self.fertility[y]
+            for x in range(self.width):
+                if row[x] > 1.0:
+                    row[x] = max(1.0, row[x] - rate)
 
     # -- mutation -----------------------------------------------------------
 
@@ -82,14 +120,16 @@ class ResourceField:
             food_row = self.food[y]
             capacity_row = self.capacity[y]
             regen_row = self.regen[y]
+            fertility_row = self.fertility[y]
             for x in range(self.width):
-                cap = capacity_row[x]
+                cap = capacity_row[x] * fertility_row[x]
                 if cap <= 0.0:
                     continue
                 current = food_row[x]
                 if current >= cap:
                     continue
-                rate = regen_row[x]
+                # Cultivated land regrows faster as well as holding more.
+                rate = regen_row[x] * fertility_row[x]
                 growth = rate * (0.25 + 0.75 * (1.0 - current / cap))
                 food_row[x] = min(cap, current + growth)
 
