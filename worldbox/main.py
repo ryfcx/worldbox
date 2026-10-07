@@ -56,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="With --view, write the page but do not open a browser.",
     )
     parser.add_argument(
+        "--no-ai",
+        action="store_true",
+        help="Disable tribe minds even if DEEPSEEK_API_KEY is set.",
+    )
+    parser.add_argument(
         "--population",
         type=int,
         default=None,
@@ -86,6 +91,10 @@ def build_config(args: argparse.Namespace) -> Config:
         config = dataclasses.replace(
             config,
             agents=dataclasses.replace(config.agents, initial_population=args.population),
+        )
+    if getattr(args, "no_ai", False):
+        config = dataclasses.replace(
+            config, ai=dataclasses.replace(config.ai, enabled=False)
         )
     return config
 

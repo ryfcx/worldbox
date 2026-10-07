@@ -2,13 +2,13 @@
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Worldbox</title>
 <style>
-/* A dark instrument panel, so the map is the only bright thing on screen. */
 :root{
-  --bg:#0B0E0C; --panel:#121714; --panel2:#1A211C; --line:#28322B;
+  --bg:#070A09; --panel:#101612; --panel2:#18201B; --line:#2A352E;
   --ink:#E7EDE6; --ink2:#9CA79D; --ink3:#6C766E;
   --accent:#5FC0B8; --accent2:#0F3A38;
   --war:#E0714F; --plague:#B08BD8; --invention:#D9AC4A; --society:#5FB884;
-  --birth:#9CA79D; --death:#6C766E; --milestone:#5FC0B8;
+  --birth:#9CA79D; --death:#6C766E; --milestone:#5FC0B8; --mind:#7EB6FF;
+  --ds:#4EC8C0; --oa:#E8B84A;
   --w:#1B2F3B; --g:#2C3A26; --f:#33472C; --m:#3B3D39;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --ui:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
@@ -21,6 +21,10 @@ button{font-family:var(--ui);font-size:12px;color:var(--ink);background:var(--pa
 button:hover{background:var(--line)}
 button.on{background:var(--accent2);border-color:var(--accent);color:var(--accent)}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+input,select{font-family:var(--ui);font-size:12px;color:var(--ink);background:var(--panel2);
+  border:1px solid var(--line);border-radius:3px;padding:5px 7px;width:100%}
+label{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink3);margin:7px 0 3px}
 
 #stage{position:fixed;inset:0}
 #map{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;
@@ -28,14 +32,13 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #map.grabbing{cursor:grabbing}
 #map.tool{cursor:crosshair}
 
-.panel{position:fixed;background:rgba(18,23,20,.94);border:1px solid var(--line);
-  border-radius:4px;backdrop-filter:blur(8px)}
+.panel{position:fixed;background:rgba(16,22,18,.94);border:1px solid var(--line);
+  border-radius:5px;backdrop-filter:blur(10px)}
 .hd{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;
   color:var(--ink3);padding:7px 10px;border-bottom:1px solid var(--line);
   display:flex;justify-content:space-between;align-items:center;gap:8px}
 .hd button{padding:1px 6px;font-size:11px;line-height:1.3}
 
-/* top bar */
 #top{top:10px;left:10px;right:10px;display:flex;align-items:center;gap:14px;
   padding:8px 12px;flex-wrap:wrap}
 #top .brand{font-family:var(--mono);font-size:12px;letter-spacing:.24em;text-transform:uppercase}
@@ -46,8 +49,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 #top .quick b{color:var(--ink);font-weight:600}
 #top .spacer{flex:1}
 
-/* left tools */
-#left{top:64px;left:10px;width:186px;max-height:calc(100vh - 84px);overflow-y:auto}
+#left{top:64px;left:10px;width:210px;max-height:calc(100vh - 230px);overflow-y:auto}
 .group{padding:8px 10px;border-bottom:1px solid var(--line)}
 .group:last-child{border-bottom:none}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
@@ -56,33 +58,60 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
 input[type=range]{flex:1;accent-color:var(--accent);height:16px}
 
-/* right inspector */
-#right{top:64px;right:10px;width:264px;max-height:calc(100vh - 84px);
+#right{top:64px;right:10px;width:292px;max-height:calc(100vh - 84px);
   display:flex;flex-direction:column}
-#inspBody{padding:10px;overflow-y:auto;font-size:12.5px;max-height:46vh}
-#inspBody h3{margin:0 0 1px;font-size:14px}
+#inspBody{padding:10px;overflow-y:auto;font-size:12.5px;max-height:38vh}
+#inspBody h3{margin:0 0 1px;font-size:15px}
 #inspBody .sub{color:var(--ink3);font-family:var(--mono);font-size:10.5px;
   text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
 .kv{display:flex;justify-content:space-between;gap:8px;font-family:var(--mono);
   font-size:11.5px;padding:1px 0;font-variant-numeric:tabular-nums}
 .kv span:first-child{color:var(--ink2)}
 .tags{margin-top:7px;font-family:var(--mono);font-size:10px;color:var(--ink3);line-height:1.6}
-.who{border-top:1px solid var(--line);margin-top:8px;padding-top:7px;
-  font-family:var(--mono);font-size:11px;line-height:1.65;color:var(--ink2)}
+.who{border-top:1px solid var(--line);margin-top:8px;padding-top:7px}
+.person{margin:0 0 8px;font-family:var(--mono);font-size:11px;line-height:1.45;color:var(--ink2)}
+.person .nm{color:var(--ink)}
 .hint{color:var(--ink3);font-style:italic}
-#aiBody{padding:10px;overflow-y:auto;max-height:30vh;color:var(--ink2);line-height:1.6}
-#aiBody p{margin:0 0 8px}
+.bar{height:4px;background:#1C2620;border-radius:2px;margin:3px 0 5px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:2px}
+.badge{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;border:1px solid var(--line);border-radius:3px;padding:0 5px;
+  margin-right:4px;color:var(--ink2)}
+.badge.ds{color:var(--ds);border-color:#1C5C58}
+.badge.oa{color:var(--oa);border-color:#6A5420}
+.badge.chief{color:var(--invention);border-color:#6A5420}
 
-/* log */
-#log{bottom:10px;left:10px;width:400px;max-width:calc(100vw - 20px)}
-#logBody{height:140px;overflow-y:auto;padding:6px 10px;margin:0;list-style:none;
+#civBody,#mindBody,#discBody,#aiBody{padding:8px 10px;overflow-y:auto;font-family:var(--mono);
+  font-size:11px;line-height:1.55}
+#civBody{max-height:22vh}#mindBody{max-height:16vh}#discBody{max-height:14vh}#aiBody{max-height:12vh;color:var(--ink2)}
+#civBody .civ,#mindBody .tribe{margin:0 0 8px;cursor:pointer;padding:4px 6px;margin-left:-6px;
+  border-radius:3px}
+#civBody .civ:hover,#mindBody .tribe:hover{background:var(--panel2)}
+#civBody .name,#mindBody .name{color:var(--ink)}
+#mindBody .stance{color:var(--mind);text-transform:uppercase;letter-spacing:.08em;font-size:10px}
+#mindBody .intent,#civBody .meta{color:var(--ink2)}
+#mindBody .wait{color:var(--ink3);font-style:italic}
+#mindBody .craft,#discBody .name{color:var(--invention)}
+#discBody .item{margin:0 0 7px}
+#discBody .why{color:var(--ink2)}
+#discBody .meta{color:var(--ink3);font-size:10px}
+.swatch{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;
+  vertical-align:middle}
+
+.legend{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;font-family:var(--mono);
+  font-size:10px;color:var(--ink2)}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend canvas{image-rendering:pixelated}
+
+#log{bottom:10px;left:10px;width:430px;max-width:calc(100vw - 20px)}
+#logBody{height:132px;overflow-y:auto;padding:6px 10px;margin:0;list-style:none;
   font-family:var(--mono);font-size:11px;line-height:1.65}
 #logBody li{display:flex;gap:8px}
 #logBody .d{font-variant-numeric:tabular-nums;white-space:nowrap}
 #logBody .m{color:var(--ink2)}
 
-#tip{position:fixed;pointer-events:none;background:rgba(11,14,12,.95);
-  border:1px solid var(--line);border-radius:3px;padding:4px 8px;font-family:var(--mono);
+#tip{position:fixed;pointer-events:none;background:rgba(7,10,9,.96);
+  border:1px solid var(--line);border-radius:3px;padding:5px 8px;font-family:var(--mono);
   font-size:11px;color:var(--ink2);display:none;z-index:50;white-space:nowrap}
 .collapsed .body{display:none}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -121,7 +150,21 @@ input[type=range]{flex:1;accent-color:var(--accent);height:16px}
   <div class="group">
     <div class="rowline">Radius <input type="range" id="radius" min="1" max="10" value="3">
       <span id="rlabel">3</span></div>
-    <div class="rowline" style="color:var(--ink3)">Click a tool, then the map.<br>Esc cancels.</div>
+    <div class="rowline">Click a tool, then the map. Esc cancels.</div>
+  </div>
+  <div class="hd">Found a civilisation</div>
+  <div class="group">
+    <label for="civName">Name</label>
+    <input id="civName" placeholder="Ashen Kin" maxlength="40">
+    <label for="civHouse">AI house</label>
+    <select id="civHouse"><option value="mix">Mixed models</option></select>
+    <label for="civPeople">People <span id="plabel">10</span></label>
+    <input type="range" id="civPeople" min="6" max="18" value="10">
+    <div class="grid" style="margin-top:8px">
+      <button id="plantCiv">Plant on map</button>
+      <button id="cancelPlant">Cancel</button>
+    </div>
+    <div class="rowline">Pick a house, then click grass to found them.</div>
   </div>
   <div class="hd">Speed</div>
   <div class="group grid">
@@ -130,11 +173,19 @@ input[type=range]{flex:1;accent-color:var(--accent);height:16px}
     <button class="sp" data-delay="0.01">Fast</button>
     <button class="sp" data-delay="0">Max</button>
   </div>
+  <div class="hd">Sprites</div>
+  <div class="group"><div class="legend" id="legend"></div></div>
 </div>
 
 <div class="panel" id="right">
   <div class="hd">Inspector <button id="clearSel">clear</button></div>
   <div id="inspBody"><span class="hint">Click the map to inspect. Drag to pan, scroll to zoom.</span></div>
+  <div class="hd">Civilisations <span id="civStatus"></span></div>
+  <div id="civBody"><span class="hint">Tribes appear here as they form. Or plant your own.</span></div>
+  <div class="hd">Minds <span id="mindStatus"></span></div>
+  <div id="mindBody"><span class="hint">Each tribe is an LLM mind. Mix DeepSeek and OpenAI in .env.</span></div>
+  <div class="hd">Discoveries</div>
+  <div id="discBody"><span class="hint">Inventions will land here as tribes work them out.</span></div>
   <div class="hd">History <button id="explain">Ask AI</button></div>
   <div id="aiBody"><span class="hint">Ask for a written account of the run so far.</span></div>
 </div>
@@ -147,32 +198,85 @@ input[type=range]{flex:1;accent-color:var(--accent);height:16px}
 "use strict";
 var TER=["--w","--g","--f","--m"];
 var W=0,H=0,terrain=null,seed=0,lastState=null,lastDay=-1,running=true;
-var scale=6, ox=0, oy=0;            // world -> screen: pixels per tile, and pan
-var layer="none", overlayRows=null, tool=null, radius=3, sel=null;
+var scale=6, ox=0, oy=0;
+var layer="none", overlayRows=null, tool=null, radius=3, sel=null, planting=false;
+var houses=[];
 
 var cv=document.getElementById("map"), ctx=cv.getContext("2d");
 function tok(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
 function esc(t){return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;")}
 function tribeColour(i){return i<0?null:"hsl("+((i*47)%360)+" 62% 58%)"}
+function houseClass(h){return h==="openai"?"oa":h==="deepseek"?"ds":""}
+function houseLabel(h){return h==="openai"?"GPT-5 Mini":h==="deepseek"?"DeepSeek Flash":h||"none"}
+function houseColor(h){return h===2||h==="openai"?tok("--oa"):h===1||h==="deepseek"?tok("--ds"):"#6C766E"}
 
-/* ---- sprites -------------------------------------------------------- */
-var PERSON=[".#.","###",".#.","#.#"];
-var BUILD=[["..x..",".x#x.","x###x","#####"],
-           [".xxx.","x###x","#o#o#","#####"],
-           ["x.xxx.x","xx###xx","x#o#o#x","x#####x","xxxxxxx"],
-           [".x...x.","xxx.xxx","x#xxx#x","x#o#o#x","x#####x","x#o#o#x","xxxxxxx"],
-           ["x.x.x.x.x","xxxxxxxxx","x#o#o#o#x","x#######x","x#o#o#o#x","x#######x","x#o#o#o#x","xxxxxxxxx"]];
+/* Pixel people. # body, o light, x dark, c cloak, h crown, + healer, w weapon. */
+var SPRITES={
+  0:["..#..",".###.",".#.#."],
+  1:["..#..",".###.","..#..",".#.#."],
+  2:["..#..",".###w","..#w.",".#.#."],
+  3:["w.#..",".###.","w.#..",".#.#."],
+  4:["..h..","..#..",".###.","..#..",".#.#."],
+  5:["..+..",".###.","..#..",".#.#."],
+  6:["..#c.",".###.","..#..",".#.#."]
+};
+var BUILD=[
+  ["..x..",".x#x.","x###x","#####"],
+  [".xxx.","x###x","#o#o#","#####"],
+  ["x.xxx.x","xx###xx","x#o#o#x","x#####x","xxxxxxx"],
+  [".x...x.","xxx.xxx","x#xxx#x","x#o#o#x","x#####x","x#o#o#x","xxxxxxx"],
+  ["x.x.x.x.x","xxxxxxxxx","x#o#o#o#x","x#######x","x#o#o#o#x","x#######x","x#o#o#o#x","xxxxxxxxx"]
+];
 var cache={};
-function shade(c,d){var m=/hsl\((\d+) (\d+)% (\d+)%\)/.exec(c);if(!m)return c;
-  return "hsl("+m[1]+" "+m[2]+"% "+Math.max(6,Math.min(94,+m[3]+d))+"%)"}
-function sprite(b,c,s){var k=b.length+"_"+b[0].length+c+s;if(cache[k])return cache[k];
+function shade(c,d){
+  var m=/hsl\((\d+)\s+(\d+)%\s+(\d+)%\)/.exec(c);
+  if(!m)return c;
+  return "hsl("+m[1]+" "+m[2]+"% "+Math.max(6,Math.min(94,+m[3]+d))+"%)";
+}
+function sprite(b, pal, s){
+  var k=b.join("|")+JSON.stringify(pal)+s;
+  if(cache[k])return cache[k];
   var e=document.createElement("canvas");e.width=b[0].length*s;e.height=b.length*s;
-  var g=e.getContext("2d"),f={"#":c,"o":shade(c,14),"x":shade(c,-24)};
-  for(var y=0;y<b.length;y++)for(var x=0;x<b[0].length;x++){var ch=b[y][x];
-    if(ch===".")continue;g.fillStyle=f[ch]||c;g.fillRect(x*s,y*s,s,s)}
-  cache[k]=e;return e}
+  var g=e.getContext("2d");
+  for(var y=0;y<b.length;y++)for(var x=0;x<b[0].length;x++){
+    var ch=b[y][x]; if(ch==="."||!pal[ch])continue;
+    g.fillStyle=pal[ch]; g.fillRect(x*s,y*s,s,s);
+  }
+  cache[k]=e;return e;
+}
+function personSprite(look, tribe, s){
+  var role=look&15, house=(look>>4)&15, flags=look>>8;
+  var body=(SPRITES[role]||SPRITES[1]).slice();
+  if(flags&1) body=[".h.h."].concat(body);
+  var cloak=houseColor(house);
+  var pal={
+    "#": (flags&4)?shade(tribe||"#888",-18):(tribe||"#888"),
+    "o": shade(tribe||"#888",16),
+    "x": shade(tribe||"#888",-26),
+    "c": cloak,
+    "h": tok("--invention"),
+    "+": "#D7F0D4",
+    "w": house===2?tok("--oa"):"#C9C4B2"
+  };
+  if(flags&2) pal["#"]="#9B7BB8";
+  return sprite(body, pal, s);
+}
 
-/* ---- camera --------------------------------------------------------- */
+function drawLegend(){
+  var el=document.getElementById("legend");
+  var items=[["Forager",1,0],["Farmer",2,1],["Warrior",3,1],["Scholar",4,2],["Healer",5,2],["Chief",1,1]];
+  el.innerHTML=items.map(function(it,i){
+    return "<span><canvas width='20' height='24' data-i='"+i+"'></canvas>"+it[0]+"</span>";
+  }).join("");
+  var tribe=tribeColour(2);
+  el.querySelectorAll("canvas").forEach(function(c,i){
+    var it=items[i], look=it[1]|(it[2]<<4)|(it[0]==="Chief"?256:0);
+    var sp=personSprite(look, tribe, 3);
+    var g=c.getContext("2d"); g.imageSmoothingEnabled=false;
+    g.drawImage(sp, Math.round((c.width-sp.width)/2), Math.round((c.height-sp.height)/2));
+  });
+}
+
 function resize(){var d=window.devicePixelRatio||1;
   cv.width=Math.round(innerWidth*d);cv.height=Math.round(innerHeight*d);
   ctx.setTransform(d,0,0,d,0,0);ctx.imageSmoothingEnabled=false;render()}
@@ -182,8 +286,10 @@ function clampPan(){var mw=W*scale,mh=H*scale;
   ox=mw<innerWidth?(innerWidth-mw)/2:Math.min(0,Math.max(innerWidth-mw,ox));
   oy=mh<innerHeight?(innerHeight-mh)/2:Math.min(0,Math.max(innerHeight-mh,oy))}
 function toTile(px,py){return{x:Math.floor((px-ox)/scale),y:Math.floor((py-oy)/scale)}}
+function panTo(x,y){
+  ox=innerWidth/2-(x+.5)*scale; oy=innerHeight/2-(y+.5)*scale; clampPan(); render();
+}
 
-/* ---- drawing -------------------------------------------------------- */
 function render(){
   if(!terrain)return;
   var cols=TER.map(tok);
@@ -219,19 +325,22 @@ function drawEntities(st){
   for(var k=0;k<L.length;k+=4){
     var sx=ox+L[k]*scale, sy=oy+L[k+1]*scale;
     if(sx<-40||sy<-40||sx>innerWidth+40||sy>innerHeight+40)continue;
-    var sp=sprite(BUILD[Math.max(0,Math.min(4,L[k+2]))],tribeColour(L[k+3])||grey,bs);
+    var col=tribeColour(L[k+3])||grey;
+    var pal={"#":col,"o":shade(col,14),"x":shade(col,-24)};
+    var sp=sprite(BUILD[Math.max(0,Math.min(4,L[k+2]))],pal,bs);
     ctx.drawImage(sp,Math.round(sx+scale/2-sp.width/2),Math.round(sy+scale/2-sp.height/2));
   }
-  var A=st.agents;
-  for(var j=0;j<A.length;j+=3){
+  var A=st.agents, stride=A.length%4===0?4:3;
+  for(var j=0;j<A.length;j+=stride){
     var axp=ox+A[j]*scale, ayp=oy+A[j+1]*scale;
     if(axp<-20||ayp<-20||axp>innerWidth+20||ayp>innerHeight+20)continue;
-    var p=sprite(PERSON,tribeColour(A[j+2])||grey,ps);
+    var col2=tribeColour(A[j+2])||grey;
+    var look=stride===4?A[j+3]:1;
+    var p=personSprite(look,col2,ps);
     ctx.drawImage(p,Math.round(axp+scale/2-p.width/2),Math.round(ayp+scale/2-p.height/2));
   }
 }
 
-/* ---- interaction ---------------------------------------------------- */
 var dragging=false,moved=false,lastX=0,lastY=0;
 cv.addEventListener("mousedown",function(e){dragging=true;moved=false;
   lastX=e.clientX;lastY=e.clientY;cv.classList.add("grabbing")});
@@ -245,8 +354,9 @@ addEventListener("mousemove",function(e){
     ox+=dx;oy+=dy;lastX=e.clientX;lastY=e.clientY;clampPan();render();return}
   var t=toTile(e.clientX,e.clientY),tip=document.getElementById("tip");
   if(t.x<0||t.y<0||t.x>=W||t.y>=H){tip.style.display="none";return}
+  var who=hoverName(t.x,t.y);
   tip.style.display="block";tip.style.left=(e.clientX+14)+"px";tip.style.top=(e.clientY+14)+"px";
-  tip.textContent="("+t.x+", "+t.y+")"+(tool?"  "+tool:"");
+  tip.textContent="("+t.x+", "+t.y+")"+(who?"  "+who:"")+(tool?"  "+tool:"")+(planting?"  plant":"");
 });
 cv.addEventListener("wheel",function(e){e.preventDefault();
   var t=toTile(e.clientX,e.clientY);
@@ -256,9 +366,32 @@ cv.addEventListener("wheel",function(e){e.preventDefault();
   document.getElementById("zlabel").textContent=(scale/6).toFixed(1)+"x";
 },{passive:false});
 
+function hoverName(x,y){
+  if(!lastState)return "";
+  var L=lastState.settlementList||[];
+  for(var i=0;i<L.length;i+=4) if(L[i]===x&&L[i+1]===y){
+    var civ=(lastState.civs||[]).filter(function(c){return c.x===x&&c.y===y})[0];
+    return civ?civ.town+" / "+civ.name:"town";
+  }
+  return "";
+}
+
 function handleClick(e){
   var t=toTile(e.clientX,e.clientY);
   if(t.x<0||t.y<0||t.x>=W||t.y>=H)return;
+  if(planting){
+    var name=encodeURIComponent(document.getElementById("civName").value||"");
+    var house=encodeURIComponent(document.getElementById("civHouse").value||"mix");
+    var people=+document.getElementById("civPeople").value||10;
+    fetch("/found?x="+t.x+"&y="+t.y+"&name="+name+"&house="+house+"&people="+people)
+      .then(function(r){return r.json()}).then(function(d){
+        planting=false; tool=null; syncTools(); cv.classList.remove("tool");
+        if(!d.ok){document.getElementById("inspBody").innerHTML="<span class='hint'>"+esc(d.error||"Could not found")+"</span>";return}
+        sel={x:d.x,y:d.y}; panTo(d.x,d.y);
+        fetch("/inspect?x="+d.x+"&y="+d.y).then(function(r){return r.json()}).then(showInspect);
+      });
+    return;
+  }
   if(tool){
     fetch("/act?tool="+tool+"&x="+t.x+"&y="+t.y+"&radius="+radius)
       .then(function(r){return r.json()}).then(function(){ if(layer!=="none")loadOverlay() });
@@ -268,20 +401,33 @@ function handleClick(e){
   fetch("/inspect?x="+t.x+"&y="+t.y).then(function(r){return r.json()}).then(showInspect);
 }
 addEventListener("keydown",function(e){
-  if(e.key==="Escape"){tool=null;syncTools();cv.classList.remove("tool")}
+  if(e.key==="Escape"){tool=null;planting=false;syncTools();cv.classList.remove("tool")}
   if(e.key===" "){e.preventDefault();togglePlay()}
 });
 
-/* ---- panels --------------------------------------------------------- */
 function kv(a,b){return '<div class="kv"><span>'+a+'</span><span>'+b+'</span></div>'}
+function bar(v, color){
+  var pct=Math.max(0,Math.min(100,+v||0));
+  return '<div class="bar"><i style="width:'+pct+'%;background:'+color+'"></i></div>';
+}
+function badge(house){
+  if(!house)return "";
+  return '<span class="badge '+houseClass(house)+'">'+esc(houseLabel(house))+'</span>';
+}
 function showInspect(d){
   var h="",s=d.settlement;
   if(s){
-    h+="<h3>"+esc(s.name)+"</h3><div class='sub'>"+esc(s.level)+" &middot; "+esc(s.tribe)+"</div>";
+    h+="<h3>"+esc(s.name)+"</h3><div class='sub'>"+esc(s.level)+" · "+esc(s.tribe)+" "+badge(s.house)+"</div>";
     h+=kv("People",s.population)+kv("Founded","day "+s.founded)+
        kv("Granary",s.store+" ("+s.storePct+"%)");
+    h+=bar(s.storePct, tok("--invention"));
     if(s.era)h+=kv("Era",esc(s.era));
+    if(s.model)h+=kv("Mind",esc(s.model));
+    if(s.research)h+=kv("Research",s.research);
     if(s.chieftain)h+=kv("Chieftain",esc(s.chieftain)+" ("+s.chieftainAge+")");
+    if(s.mind){h+=kv("Stance",esc(s.mind.stance));
+      if(s.mind.inventing)h+=kv("Working on",esc(s.mind.inventing));
+      if(s.mind.intent)h+="<div class='tags'>"+esc(s.mind.intent)+"</div>"}
     if(s.battlesWon+s.battlesLost)h+=kv("Battles",s.battlesWon+"W / "+s.battlesLost+"L");
     if(s.warDead)h+=kv("War dead",s.warDead);
     if(s.plagueDead)h+=kv("Plague dead",s.plagueDead);
@@ -293,25 +439,35 @@ function showInspect(d){
     h+=kv("Food",d.food)+(d.fertility!==undefined?kv("Farmland",d.fertility+"x"):"");
   }
   if(d.people&&d.people.length){h+="<div class='who'>";
-    d.people.forEach(function(p){h+="<div>"+esc(p.name)+" &middot; "+p.age+"y "+esc(p.role)+
-      " &middot; "+esc(p.goal)+(p.ill?" &middot; <span style='color:var(--plague)'>"+esc(p.ill)+"</span>":"")+"</div>"});
-    h+="</div>"}
-  else if(!s)h+="<div class='who hint'>Nobody here.</div>";
+    d.people.forEach(function(p){
+      h+="<div class='person'><span class='nm'>"+esc(p.name)+"</span> "+
+        (p.chief?'<span class="badge chief">chief</span>':'')+badge(p.house)+
+        "<div>"+p.age+"y · "+esc(p.role)+(p.tribe?" · "+esc(p.tribe):"")+" · "+esc(p.goal)+
+        (p.ill?" · <span style='color:var(--plague)'>"+esc(p.ill)+"</span>":"")+"</div>"+
+        "<div>hp "+p.health+" · hunger "+p.hunger+(p.energy!==undefined?" · energy "+p.energy:"")+"</div>"+
+        bar(p.health,"#5FB884")+bar(100-(p.hunger||0),"#D9AC4A")+"</div>";
+    });
+    h+="</div>";
+  } else if(!s) h+="<div class='who hint'>Nobody here.</div>";
   document.getElementById("inspBody").innerHTML=h;
 }
 function quick(s){
   document.getElementById("quick").innerHTML=
     "Pop <b>"+s.population.toLocaleString()+"</b>"+
-    "Tribes <b>"+s.tribes+"</b>"+
+    "Civs <b>"+s.tribes+"</b>"+
     "Towns <b>"+s.settlements+"</b>"+
-    "Tech <b>"+s.techs+"/16</b>"+
+    "Tech <b>"+s.techs+"</b>"+
     "Wars <b>"+s.wars+"</b>"+
     "Ill <b>"+s.ill+"</b>"+
     "Food <b>"+Math.round(s.food*100)+"%</b>";
   document.getElementById("clock").textContent="Year "+s.year+" · day "+s.day.toLocaleString();
+  showCivs(s.civs||[]);
+  showMinds(s.ai);
+  showDiscoveries(s.discoveries);
+  if(s.houses&&s.houses.length) fillHouses(s.houses);
 }
 var KIND={war:"--war",plague:"--plague",invention:"--invention",society:"--society",
-  birth:"--birth",death:"--death",milestone:"--milestone"};
+  birth:"--birth",death:"--death",milestone:"--milestone",mind:"--mind"};
 var logEl=document.getElementById("logBody");
 function addLog(items){if(!items||!items.length)return;
   var stick=logEl.scrollTop+logEl.clientHeight>=logEl.scrollHeight-16;
@@ -321,12 +477,12 @@ function addLog(items){if(!items||!items.length)return;
   while(logEl.children.length>250)logEl.removeChild(logEl.firstChild);
   if(stick)logEl.scrollTop=logEl.scrollHeight}
 
-/* ---- controls ------------------------------------------------------- */
 function syncTools(){document.querySelectorAll(".tl").forEach(function(b){
   b.classList.toggle("on",b.dataset.tool===tool)});
-  cv.classList.toggle("tool",!!tool)}
+  document.getElementById("plantCiv").classList.toggle("on", planting);
+  cv.classList.toggle("tool",!!tool||planting)}
 document.querySelectorAll(".tl").forEach(function(b){b.addEventListener("click",function(){
-  tool=(tool===b.dataset.tool)?null:b.dataset.tool;syncTools()})});
+  planting=false; tool=(tool===b.dataset.tool)?null:b.dataset.tool;syncTools()})});
 document.querySelectorAll(".lyr").forEach(function(b){b.addEventListener("click",function(){
   layer=b.dataset.layer;
   document.querySelectorAll(".lyr").forEach(function(o){o.classList.toggle("on",o===b)});
@@ -336,12 +492,20 @@ document.querySelectorAll(".sp").forEach(function(b){b.addEventListener("click",
   document.querySelectorAll(".sp").forEach(function(o){o.classList.toggle("on",o===b)})})});
 document.getElementById("radius").addEventListener("input",function(){
   radius=+this.value;document.getElementById("rlabel").textContent=radius});
+document.getElementById("civPeople").addEventListener("input",function(){
+  document.getElementById("plabel").textContent=this.value});
 document.getElementById("fit").addEventListener("click",fit);
 document.getElementById("clearSel").addEventListener("click",function(){
   sel=null;document.getElementById("inspBody").innerHTML="<span class='hint'>Click the map to inspect.</span>";render()});
 document.getElementById("logToggle").addEventListener("click",function(){
   var p=document.getElementById("log");p.classList.toggle("collapsed");
   this.textContent=p.classList.contains("collapsed")?"show":"hide"});
+document.getElementById("plantCiv").addEventListener("click",function(){
+  planting=!planting; tool=null; syncTools();
+});
+document.getElementById("cancelPlant").addEventListener("click",function(){
+  planting=false; syncTools();
+});
 function togglePlay(){fetch("/control?action="+(running?"pause":"resume")).then(poll)}
 document.getElementById("playBtn").addEventListener("click",togglePlay);
 document.getElementById("explain").addEventListener("click",function(){
@@ -353,10 +517,89 @@ document.getElementById("explain").addEventListener("click",function(){
       return "<p>"+esc(p.replace(/\*\*/g,"").replace(/^#+\s*/,""))+"</p>"}).join("")})
     .catch(function(){el.innerHTML="<span class='hint'>Could not reach the simulation.</span>"})});
 
+function fillHouses(list){
+  houses=list||[];
+  var selEl=document.getElementById("civHouse");
+  var cur=selEl.value;
+  var opts=[{v:"mix",l:"Mixed models"}].concat(houses.map(function(h){return {v:h.house,l:h.label}}));
+  selEl.innerHTML=opts.map(function(o){return "<option value='"+esc(o.v)+"'>"+esc(o.l)+"</option>"}).join("");
+  if(opts.some(function(o){return o.v===cur})) selEl.value=cur;
+}
+
+function showCivs(rows){
+  var el=document.getElementById("civBody");
+  var st=document.getElementById("civStatus");
+  st.textContent=rows.length?rows.length+" live":"";
+  if(!rows.length){
+    el.innerHTML="<span class='hint'>Tribes appear here as they form. Or plant your own.</span>";
+    return;
+  }
+  el.innerHTML=rows.map(function(t){
+    var col=tribeColour(t.color)||"#888";
+    return "<div class='civ' data-x='"+t.x+"' data-y='"+t.y+"'>"+
+      "<span class='swatch' style='background:"+col+"'></span>"+
+      "<span class='name'>"+esc(t.name)+"</span> "+badge(t.house)+
+      "<div class='meta'>"+t.pop+" people"+(t.era?" · "+esc(t.era):"")+(t.town?" · "+esc(t.town):"")+
+      (t.inventing?" · crafting "+esc(t.inventing):"")+"</div></div>";
+  }).join("");
+  el.querySelectorAll(".civ").forEach(function(n){
+    n.addEventListener("click",function(){
+      var x=+n.dataset.x, y=+n.dataset.y; sel={x:x,y:y}; panTo(x,y);
+      fetch("/inspect?x="+x+"&y="+y).then(function(r){return r.json()}).then(showInspect);
+    });
+  });
+}
+
+function showMinds(ai){
+  var el=document.getElementById("mindBody");
+  var st=document.getElementById("mindStatus");
+  if(!ai){el.innerHTML="<span class='hint'>No AI state.</span>";return}
+  if(!ai.available){
+    st.textContent="";
+    el.innerHTML="<span class='hint'>Put "+esc(ai.key||"DEEPSEEK_API_KEY")+" and/or "+esc(ai.openaiKey||"OPENAI_API_KEY")+" in .env. Mixed keys give mixed minds.</span>";
+    return;
+  }
+  var rows=ai.tribes||[];
+  st.textContent=(ai.thinking?ai.thinking+" thinking":ai.minds+" live");
+  if(!rows.length){
+    el.innerHTML="<span class='hint'>Waiting for tribes to form, or plant one yourself.</span>";
+    return;
+  }
+  el.innerHTML=rows.map(function(t){
+    var craft=t.inventing?"<div class='craft'>working on "+esc(t.inventing)+"</div>":"";
+    var head="<span class='name'>"+esc(t.name)+"</span> "+badge(t.house)+" ";
+    if(t.thinking) return "<div class='tribe' data-x='"+t.x+"' data-y='"+t.y+"'>"+head+"<span class='wait'>thinking…</span>"+(t.intent?"<div class='intent'>"+esc(t.intent)+"</div>":"")+craft+"</div>";
+    if(t.stance) return "<div class='tribe' data-x='"+t.x+"' data-y='"+t.y+"'>"+head+"<span class='stance'>"+esc(t.stance)+"</span><div class='intent'>"+esc(t.intent||"")+"</div>"+craft+"</div>";
+    if(t.error) return "<div class='tribe' data-x='"+t.x+"' data-y='"+t.y+"'>"+head+"<div class='intent'>"+esc(t.error)+"</div></div>";
+    return "<div class='tribe' data-x='"+t.x+"' data-y='"+t.y+"'>"+head+"<span class='wait'>waiting</span></div>";
+  }).join("");
+  el.querySelectorAll(".tribe").forEach(function(n){
+    n.addEventListener("click",function(){
+      var x=+n.dataset.x, y=+n.dataset.y; sel={x:x,y:y}; panTo(x,y);
+      fetch("/inspect?x="+x+"&y="+y).then(function(r){return r.json()}).then(showInspect);
+    });
+  });
+}
+
+function showDiscoveries(items){
+  var el=document.getElementById("discBody");
+  if(!el)return;
+  if(!items||!items.length){
+    el.innerHTML="<span class='hint'>Inventions will land here as tribes work them out.</span>";
+    return;
+  }
+  var rows=items.slice().reverse();
+  el.innerHTML=rows.map(function(d){
+    return "<div class='item'><span class='name'>"+esc(d.name)+"</span>"+
+      (d.custom?" <span class='meta'>new</span>":"")+
+      "<div class='meta'>Y"+d.year+" · "+esc(d.tribe)+(d.era?" · "+esc(d.era):"")+"</div>"+
+      (d.why?"<div class='why'>"+esc(d.why)+"</div>":"")+"</div>";
+  }).join("");
+}
+
 function loadOverlay(){fetch("/overlay?kind="+layer).then(function(r){return r.json()})
   .then(function(d){overlayRows=d.rows;render()})}
 
-/* ---- polling -------------------------------------------------------- */
 function poll(){fetch("/state?since="+lastDay).then(function(r){return r.json()}).then(function(s){
   lastDay=s.day;running=s.running;lastState=s;
   document.getElementById("playBtn").textContent=running?"Pause":"Play";
@@ -366,7 +609,8 @@ function poll(){fetch("/state?since="+lastDay).then(function(r){return r.json()}
 addEventListener("resize",resize);
 fetch("/world").then(function(r){return r.json()}).then(function(w){
   W=w.width;H=w.height;terrain=w.terrain;seed=w.seed;
-  resize();fit();poll();setInterval(poll,500);
+  fillHouses(w.houses||[]);
+  resize();fit();drawLegend();poll();setInterval(poll,500);
   setInterval(function(){if(layer!=="none")loadOverlay()},4000);
 });
 })();

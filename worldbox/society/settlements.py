@@ -164,6 +164,35 @@ class SettlementSystem:
         self._next_id += 1
         return settlement
 
+    def found_at(
+        self,
+        group: Group,
+        x: int,
+        y: int,
+        day: int,
+        rng: random.Random,
+        food_store: float = 50.0,
+    ) -> Optional[Settlement]:
+        """Plant a camp at a chosen tile, ignoring the usual size gate."""
+        if self.for_group(group.id) is not None:
+            return None
+        settlement = Settlement(
+            id=self._next_id,
+            group_id=group.id,
+            name=settlement_name(rng, group.naming_style),
+            x=x,
+            y=y,
+            founded_day=day,
+            peak_population=max(group.size, 1),
+            food_store=food_store,
+        )
+        self.settlements[settlement.id] = settlement
+        self.by_group[group.id] = settlement.id
+        group.settlement_id = settlement.id
+        group.centre = (x, y)
+        self._next_id += 1
+        return settlement
+
     def try_upgrade(
         self, settlement: Settlement, group: Group, knowledge: Knowledge, day: int
     ) -> Optional[LevelSpec]:

@@ -81,6 +81,7 @@ class Agent:
     # -- society ------------------------------------------------------------
     group_id: Optional[int] = None  # Tribe membership; None = unaffiliated.
     role: str = "forager"  # Profession within the tribe; see roles.Role.
+    ai_house: str = ""  # Which LLM house this person belongs to (deepseek/openai).
     family_name: str = ""  # Inherited surname, so lineages are visible.
     aggression: float = 0.35  # 0.0 peaceful .. 1.0 warlike; inherited.
     caution: float = 0.50  # Raises flight, lowers fight; inherited.

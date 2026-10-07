@@ -79,6 +79,9 @@ def aggregate(rows: Sequence[Dict[str, float]]) -> Dict[str, float]:
 def build_configs(baseline_flag: str) -> Dict[str, Config]:
     """The two configurations being compared."""
     utility_on = Config()
+    utility_on = dataclasses.replace(
+        utility_on, ai=dataclasses.replace(utility_on.ai, enabled=False)
+    )
     utility_off = dataclasses.replace(
         utility_on, utility=dataclasses.replace(utility_on.utility, enabled=False)
     )

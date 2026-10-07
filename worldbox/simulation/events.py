@@ -24,6 +24,7 @@ class EventKind(Enum):
     SOCIETY = "society"  # Tribes founded, split, or died out.
     INVENTION = "invention"  # A tribe invented a technology.
     WAR = "war"  # Wars declared, battles fought, peace made.
+    MIND = "mind"  # A tribe mind chose a policy.
     PLAGUE = "plague"  # Outbreaks and their end.
     SYSTEM = "system"
     ERROR = "error"

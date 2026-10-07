@@ -106,7 +106,33 @@ TECH_TREE: Tuple[Technology, ...] = (
 )
 
 TECH_BY_ID: Dict[str, Technology] = {tech.id: tech for tech in TECH_TREE}
+STOCK_IDS: Set[str] = {tech.id for tech in TECH_TREE}
 ERAS: Tuple[str, ...] = ("Stone Age", "Agricultural Age", "Bronze Age", "Iron Age")
+
+
+def register_technology(tech: Technology) -> Technology:
+    """Add a custom technology to the live catalog, or return the existing one.
+
+    Custom crafts have to live next to the stock tree so diffusion, the
+    inspector and era detection all keep working. A second tribe that invents
+    the same idea reuses the first entry instead of forking the id.
+    """
+    existing = TECH_BY_ID.get(tech.id)
+    if existing is not None:
+        return existing
+    TECH_BY_ID[tech.id] = tech
+    return tech
+
+
+def reset_custom_technologies() -> None:
+    """Drop custom crafts so a new world does not inherit the last run's tree."""
+    for tech_id in [key for key in TECH_BY_ID if key not in STOCK_IDS]:
+        del TECH_BY_ID[tech_id]
+
+
+def lookup_tech(tech_id: str) -> Optional[Technology]:
+    """The technology with this id, or ``None`` if it was never registered."""
+    return TECH_BY_ID.get(tech_id)
 
 
 @dataclass(frozen=True)
@@ -138,9 +164,11 @@ class Knowledge:
         """The most advanced era this tribe has reached."""
         best = ERAS[0]
         for tech_id in self.known:
-            era = TECH_BY_ID[tech_id].era
-            if ERAS.index(era) > ERAS.index(best):
-                best = era
+            tech = TECH_BY_ID.get(tech_id)
+            if tech is None or tech.era not in ERAS:
+                continue
+            if ERAS.index(tech.era) > ERAS.index(best):
+                best = tech.era
         return best
 
     def recompute_effects(self) -> None:
@@ -154,7 +182,9 @@ class Knowledge:
             "disease_resistance": 0.0,
         }
         for tech_id in self.known:
-            tech = TECH_BY_ID[tech_id]
+            tech = TECH_BY_ID.get(tech_id)
+            if tech is None:
+                continue
             for key in totals:
                 totals[key] += getattr(tech, key)
         self.effects = TechEffects(**totals)

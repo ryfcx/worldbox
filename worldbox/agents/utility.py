@@ -155,6 +155,22 @@ def score_actions(
         from .behavior import Goal as _Goal
 
         scores[_Goal.WANDER] = WEIGHTS.get("wander", 0.06)
+
+    # A tribe mind can lean the whole people toward fighting, fleeing, farming
+    # or breeding without rewriting the scorers themselves.
+    if social is not None:
+        from .behavior import Goal as _Goal
+
+        biases = {
+            _Goal.FIGHT: social.fight_bias,
+            _Goal.FLEE: social.flee_bias,
+            _Goal.SEEK_FOOD: social.food_bias,
+            _Goal.EAT: social.food_bias,
+            _Goal.SEEK_MATE: social.mate_bias,
+        }
+        for goal, bias in biases.items():
+            if goal in scores and bias != 1.0:
+                scores[goal] *= bias
     return scores
 
 

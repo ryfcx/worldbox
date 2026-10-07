@@ -69,6 +69,7 @@ class Group:
     battles_lost: int = 0
     war_dead: int = 0
     plague_dead: int = 0
+    ai_house: str = ""  # LLM that plays this tribe: deepseek, openai, …
 
     @property
     def size(self) -> int:

@@ -109,6 +109,8 @@ def render_stats(stats: WorldStats) -> str:
         f"  Technologies:       {stats.technologies_known} / 16 discovered",
         f"  Food stored:        {stats.total_food_stored:,.0f}",
         f"  Chronicle entries:  {stats.chronicle_entries}",
+        f"  AI minds:           {stats.ai_minds}"
+        + (f" ({stats.ai_thinking} thinking)" if stats.ai_thinking else ""),
         "",
         "Conflict & disease",
         f"  Active wars:        {stats.active_wars}",
@@ -233,6 +235,11 @@ def render_tribes(engine: SimulationEngine) -> str:
             lines.append(f"      {roles}")
         if wars:
             lines.append(f"      AT WAR ({len(wars)})")
+        policy = engine.minds.policy_for(group.id)
+        if policy is not None:
+            lines.append(f"      Mind: {policy.stance} — {policy.intent or 'no intent yet'}")
+            if policy.invent is not None:
+                lines.append(f"      Inventing: {policy.invent.name}")
     lines.append(rule)
     return "\n".join(lines)
 
@@ -253,12 +260,34 @@ def render_tribe(engine: SimulationEngine, group_id: int) -> str:
         f"Founded:    day {group.founded_day}",
         f"Members:    {group.size}",
         f"Era:        {group.era}",
+        f"AI house:   {group.ai_house or 'none'}",
         f"Chieftain:  {chief.full_name if chief else 'none'}",
         f"Aggression: {group.average_aggression:.2f}   Hunger: {group.average_hunger:.1f}",
         f"Record:     {group.battles_won} battles won, {group.battles_lost} lost, "
         f"{group.war_dead} war dead, {group.plague_dead} lost to plague",
         "",
     ]
+    policy = engine.minds.policy_for(group.id)
+    if policy is not None:
+        toward = ", ".join(
+            f"#{other} {action}" for other, action in policy.toward
+        ) or "none"
+        lines += [
+            f"Mind:       {policy.stance} (day {policy.thought_day})",
+            f"Intent:     {policy.intent or '—'}",
+            f"Labour:     warriors {policy.warrior_share:.0%}  farmers "
+            f"{policy.farmer_share:.0%}  scholars {policy.scholar_share:.0%}  "
+            f"healers {policy.healer_share:.0%}",
+            f"Temper:     fight x{policy.fight:.2f}  flee x{policy.flee:.2f}  "
+            f"food x{policy.seek_food:.2f}  cohesion {policy.cohesion:.2f}",
+            f"Toward:     {toward}",
+        ]
+        if policy.invent is not None:
+            lines.append(
+                f"Inventing:  {policy.invent.name} ({policy.invent.cost:.0f} research, "
+                f"{policy.invent.effect})"
+            )
+        lines.append("")
     if settlement is not None:
         lines += [
             f"Settlement: {settlement.name} ({settlement.level_name}) at "
@@ -278,9 +307,52 @@ def render_tribe(engine: SimulationEngine, group_id: int) -> str:
     return "\n".join(lines)
 
 
+def render_minds(engine: SimulationEngine) -> str:
+    """Render every tribe mind: stance, intent, and whether it is thinking."""
+    from ..ai.client import ENV_KEY, OPENAI_ENV_KEY, is_available
+
+    rule = _rule()
+    lines = ["TRIBE MINDS", rule]
+    if not engine.config.ai.enabled:
+        lines += ["  AI minds are disabled (--no-ai).", rule]
+        return "\n".join(lines)
+    if not is_available():
+        lines += [
+            f"  No API key. Put {ENV_KEY} and/or {OPENAI_ENV_KEY} in .env",
+            "  and tribes will start thinking as soon as they form.",
+            rule,
+        ]
+        return "\n".join(lines)
+
+    rows = engine.minds.snapshot(engine)
+    if not rows:
+        lines += ["  (no tribes yet -- minds appear once people band together)", rule]
+        return "\n".join(lines)
+
+    thinking = sum(1 for row in rows if row.thinking)
+    lines.append(
+        f"  {sum(1 for row in rows if row.stance)} of {len(rows)} tribes have a policy"
+        + (f", {thinking} thinking now" if thinking else "")
+        + "."
+    )
+    lines.append("")
+    for row in rows:
+        status = "thinking" if row.thinking else (row.stance or "waiting")
+        house = f"  {row.model}" if row.model else ""
+        lines.append(f"  #{row.group_id} {row.name}  [{status}]{house}")
+        if row.intent:
+            lines.append(f"      {row.intent}")
+        elif row.error:
+            lines.append(f"      error: {row.error}")
+        elif not row.stance:
+            lines.append("      no policy yet")
+    lines.append(rule)
+    return "\n".join(lines)
+
+
 def render_technology(engine: SimulationEngine) -> str:
     """Render the world's technological progress, era by era."""
-    from ..society.technology import ERAS, TECH_TREE
+    from ..society.technology import ERAS, STOCK_IDS, TECH_BY_ID, TECH_TREE
 
     rule = _rule()
     counts = {}
@@ -299,6 +371,22 @@ def render_technology(engine: SimulationEngine) -> str:
             mark = "#" if holders else "."
             share = f"{holders}/{tribes} tribes" if holders else "undiscovered"
             lines.append(f"    [{mark}] {tech.name:<20} {share}")
+    custom = [
+        TECH_BY_ID[tech_id]
+        for tech_id, holders in sorted(counts.items())
+        if tech_id not in STOCK_IDS and tech_id in TECH_BY_ID
+    ]
+    if custom:
+        lines.append("  Unique crafts")
+        for tech in custom:
+            holders = counts.get(tech.id, 0)
+            lines.append(f"    [#] {tech.name:<20} {holders}/{tribes} tribes")
+    if engine.discoveries:
+        lines.append("")
+        lines.append("  Recent discoveries")
+        for item in engine.discoveries[-8:]:
+            tag = "new" if item.get("custom") else "tree"
+            lines.append(f"    Y{item['year']:>4}  {item['name']}  ({item['tribe']}, {tag})")
     lines.append(rule)
     return "\n".join(lines)
 
@@ -384,6 +472,7 @@ Commands
   wars               Active wars and recent war history
   towns              Every settlement and its granary
   chronicle [n]      The permanent history of the world (default 30)
+  minds              What each tribe AI has decided to do
   narrate            Have an AI write up the chronicle as a history
   livemap            Open a browser map that updates as the simulation runs
   view [days]        Build a recorded map of the run so far and open it
@@ -427,6 +516,7 @@ class Terminal:
             "towns": self.cmd_towns,
             "settlements": self.cmd_towns,
             "chronicle": self.cmd_chronicle,
+            "minds": self.cmd_minds,
             "narrate": self.cmd_narrate,
             "export": self.cmd_export,
             "view": self.cmd_view,
@@ -615,12 +705,17 @@ class Terminal:
             total = len(self.engine.chronicle)
         print(render_chronicle(entries, total))
 
+    def cmd_minds(self, args: List[str]) -> None:
+        """Show what each tribe mind has decided."""
+        with self.runner.lock:
+            print(render_minds(self.engine))
+
     def cmd_narrate(self, args: List[str]) -> None:
         """Ask an AI to write the world's chronicle up as a history."""
         if not ai_narrator.is_available():
             print(
-                f"Narration needs an API key. Set {ai_narrator.ENV_KEY} in your\n"
-                "environment, then run 'narrate' again."
+                f"Narration needs an API key. Put {ai_narrator.ENV_KEY} in .env\n"
+                "or export it, then run 'narrate' again."
             )
             return
         with self.runner.lock:

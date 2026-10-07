@@ -17,8 +17,9 @@ A single day (one tick) runs these phases, in this order:
     7. Advance disease: illness, contagion, new outbreaks
     8. Process deaths, then births
     9. Update society: tribes form and split, research, diplomacy and war
-   10. Record important events (daily milestones)
-   11. Advance the simulation clock
+    10. Tribe minds apply finished policies and request new ones
+    11. Record important events (daily milestones)
+    12. Advance the simulation clock
 
 Combat is resolved before deaths so that mortal wounds are attributed to the
 right war, and society is updated after births so that newborns are counted.
@@ -29,7 +30,7 @@ from __future__ import annotations
 import random
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional, Tuple
 
 from ..agents.agent import Agent, create_agent
@@ -42,6 +43,8 @@ from ..agents.behavior import (
     execute,
 )
 from ..agents.needs import Needs, apply_daily_upkeep, apply_meal, cause_of_death
+from ..ai.inventions import realize, scan_materials, validate_proposal
+from ..ai.minds import MindDirector
 from ..config import Config
 from ..society import combat as combat_system
 from ..society import culture as culture_system
@@ -51,7 +54,14 @@ from ..society.epidemics import DiseaseSystem, EpidemicReport
 from ..society.groups import Group, GroupRegistry
 from ..society.roles import Role
 from ..society.settlements import Settlement, SettlementSystem
-from ..society.technology import ERAS, TechEffects, Technology, try_invent
+from ..society.technology import (
+    ERAS,
+    TechEffects,
+    Technology,
+    daily_research,
+    reset_custom_technologies,
+    try_invent,
+)
 from ..world.terrain import TerrainType
 from ..world.world import World
 from .chronicle import Chronicle, Milestone
@@ -125,6 +135,8 @@ class WorldStats:
     total_food_stored: float
     role_counts: Dict[str, int]
     chronicle_entries: int
+    ai_minds: int
+    ai_thinking: int
 
 
 @dataclass
@@ -162,6 +174,7 @@ class SimulationEngine:
         self.diplomacy: Diplomacy
         self.diseases: DiseaseSystem
         self.chronicle = Chronicle()
+        self.minds = MindDirector(self.config.ai)
         self.total_births = 0
         self.total_deaths = 0
         self.total_battles = 0
@@ -198,6 +211,9 @@ class SimulationEngine:
         self.diplomacy = Diplomacy(self.config.diplomacy)
         self.diseases = DiseaseSystem(self.config.disease)
         self.chronicle.clear()
+        self.minds.reset()
+        reset_custom_technologies()
+        self.discoveries: List[Dict[str, object]] = []
 
         self._next_agent_id = 1
         self.total_births = 0
@@ -214,6 +230,22 @@ class SimulationEngine:
             f"World created with seed {self.seed} "
             f"({self.world.width}x{self.world.height}, {len(self.agents)} agents)",
         )
+        if self.config.ai.enabled:
+            from ..ai.client import ENV_KEY, OPENAI_ENV_KEY, available_houses, is_available as ai_ready
+
+            if ai_ready():
+                labels = ", ".join(spec["label"] for spec in available_houses())
+                self.events.record(
+                    0,
+                    EventKind.MIND,
+                    f"{labels} will play the civilisations that form",
+                )
+            else:
+                self.events.record(
+                    0,
+                    EventKind.SYSTEM,
+                    f"Tribe minds idle — put {ENV_KEY} or {OPENAI_ENV_KEY} in .env",
+                )
 
     def _spawn_founder(self) -> Agent:
         """Create one member of the founding generation."""
@@ -240,6 +272,9 @@ class SimulationEngine:
         terrain = self.world.terrain_at(x, y)
         if terrain is not None:
             agent.memory.known_terrain.add(terrain.value)
+        from ..ai.client import house_for_index
+
+        agent.ai_house = house_for_index(agent.id)
         self._next_agent_id += 1
         return agent
 
@@ -393,11 +428,19 @@ class SimulationEngine:
         fertility = group.knowledge.effects.fertility
         if settlement is not None:
             fertility += settlement.spec.fertility_bonus
+
+        policy = self.minds.policy_for(group.id)
         return SocialContext(
             threat=threat,
             home=home,
             reproduction_cooldown_scale=1.0 / (1.0 + fertility),
             vision_bonus=role_system.foraging_vision_bonus(agent, self.config.roles),
+            fight_bias=policy.fight if policy else 1.0,
+            flee_bias=policy.flee if policy else 1.0,
+            food_bias=policy.seek_food if policy else 1.0,
+            mate_bias=policy.seek_mate if policy else 1.0,
+            cohesion=policy.cohesion if policy else None,
+            territory_radius=policy.territory_radius if policy else None,
         )
 
     def _process_meals(self, eaters: List[Agent], day: int) -> None:
@@ -630,6 +673,9 @@ class SimulationEngine:
             terrain = self.world.terrain_at(child.x, child.y)
             if terrain is not None:
                 child.memory.known_terrain.add(terrain.value)
+            child.ai_house = agent.ai_house or partner.ai_house
+            if child.ai_house and partner.ai_house and agent.ai_house != partner.ai_house:
+                child.ai_house = agent.ai_house if self.rng.random() < 0.5 else partner.ai_house
             self._next_agent_id += 1
 
             agent.children.append(child.id)
@@ -663,6 +709,9 @@ class SimulationEngine:
             self._process_research(day, report)
         if self.config.culture.enabled:
             self._process_culture(day)
+        # Minds think off-thread; finished policies land here, then diplomacy
+        # so a decision to make war can actually start one the same day.
+        self.minds.tick(self, day)
         if self.config.diplomacy.enabled:
             self._process_diplomacy(day, report)
         self.chronicle.note_population(day, self.clock.year, len(self.agents))
@@ -698,12 +747,28 @@ class SimulationEngine:
                     if group.id in key
                 )
                 starving = group.average_hunger >= self.config.roles.starving_hunger
+                role_config = self.config.roles
+                policy = self.minds.policy_for(group.id)
+                if policy is not None:
+                    warrior = policy.warrior_share
+                    farmer = policy.farmer_share
+                    if starving:
+                        farmer = max(farmer, 0.35)
+                    role_config = replace(
+                        role_config,
+                        warrior_share_at_peace=warrior,
+                        warrior_share_at_war=min(0.65, max(warrior, warrior * 1.3)),
+                        farmer_share=farmer,
+                        farmer_share_when_starving=min(0.7, max(farmer, 0.45)),
+                        scholar_share=policy.scholar_share,
+                        healer_share=policy.healer_share,
+                    )
                 counts = role_system.assign_roles(
                     members,
                     group.knowledge,
                     at_war,
                     starving,
-                    self.config.roles,
+                    role_config,
                     self.config.agents,
                     self.config.simulation.days_per_year,
                 )
@@ -806,11 +871,18 @@ class SimulationEngine:
                 continue
             group, founded = outcome
             if founded:
+                from ..ai.client import house_for_index, house_spec
+
+                if not agent.ai_house:
+                    agent.ai_house = house_for_index(agent.id)
+                group.ai_house = agent.ai_house
+                label = house_spec(agent.ai_house)["label"] if agent.ai_house else "no model"
                 agent.memory.note(day, f"founded the {group.name}")
                 self.events.record(
                     day,
                     EventKind.SOCIETY,
-                    f"Agent #{agent.id} ({agent.name}) founded the {group.name}",
+                    f"Agent #{agent.id} ({agent.name}) founded the {group.name} "
+                    f"({label})",
                     agent_id=agent.id,
                 )
 
@@ -823,6 +895,9 @@ class SimulationEngine:
             splinter = self.groups.try_split(group, members, day, self.rng)
             if splinter is None:
                 continue
+            from ..ai.client import house_for_index
+
+            splinter.ai_house = house_for_index(splinter.id) or group.ai_house
             # A splinter group starts out resentful of the tribe it left.
             self.diplomacy.adjust(group.id, splinter.id, -20.0)
             self.events.record(
@@ -844,26 +919,69 @@ class SimulationEngine:
             settlement = self.settlements.for_group(group.id)
             if settlement is not None:
                 multiplier *= 1.0 + settlement.spec.research_bonus
+            policy = self.minds.policy_for(group.id)
+            if policy is not None and policy.stance == "research":
+                multiplier *= 1.2
             effective_population = max(1, int(group.size * multiplier))
 
-            invention = try_invent(
-                group.knowledge,
-                effective_population,
-                group.average_hunger,
-                self.config.technology,
-                self.rng,
-            )
+            invention = None
+            why = ""
+            saving = False
+            if (
+                policy is not None
+                and policy.invent is not None
+                and self.config.ai.allow_inventions
+            ):
+                survey = scan_materials(self, group)
+                problem = validate_proposal(
+                    policy.invent, group, survey, self.config.ai
+                )
+                if problem:
+                    policy.invent = None
+                else:
+                    saving = True
+                    why = policy.invent.why
+                    group.knowledge.research_points += daily_research(
+                        group.knowledge,
+                        effective_population,
+                        group.average_hunger,
+                        self.config.technology,
+                    )
+                    invention = realize(group, policy.invent, survey, self.config.ai)
+                    if invention is not None:
+                        policy.invent = None
+            if invention is None and not saving:
+                why = ""
+                invention = try_invent(
+                    group.knowledge,
+                    effective_population,
+                    group.average_hunger,
+                    self.config.technology,
+                    self.rng,
+                )
             if invention is None:
                 continue
             report.inventions.append((group.name, invention))
-            self.events.record(
-                day,
-                EventKind.INVENTION,
-                f"The {group.name} invented {invention.name} ({invention.era})",
-            )
+            message = f"The {group.name} invented {invention.name} ({invention.era})"
+            if why:
+                message = f"The {group.name} invented {invention.name} — {why}"
+            self.events.record(day, EventKind.INVENTION, message)
             self.chronicle.note_invention(
                 day, self.clock.year, group.name, invention.id, invention.name, invention.era
             )
+            self.discoveries.append(
+                {
+                    "day": day,
+                    "year": self.clock.year,
+                    "tribe": group.name,
+                    "name": invention.name,
+                    "era": invention.era,
+                    "custom": invention.id.startswith("custom_"),
+                    "why": why,
+                }
+            )
+            if len(self.discoveries) > 40:
+                del self.discoveries[:-40]
 
     def _process_diplomacy(self, day: int, report: DayReport) -> None:
         """Move relations, declare wars and make peace."""
@@ -1075,6 +1193,8 @@ class SimulationEngine:
             total_food_stored=sum(s.food_store for s in settlements),
             role_counts=role_totals,
             chronicle_entries=len(self.chronicle),
+            ai_minds=sum(1 for group in tribes if self.minds.policy_for(group.id)),
+            ai_thinking=self.minds.thinking_count(),
         )
 
 

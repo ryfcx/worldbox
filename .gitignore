@@ -4,3 +4,4 @@ __pycache__/
 worldbox_run.json
 worldbox.html
 .venv/
+.env

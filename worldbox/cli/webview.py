@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ..simulation.engine import SimulationEngine, SimulationRunner
 from ..simulation.events import EventKind
+from ..society.technology import lookup_tech
 from ..world.terrain import TerrainType
 
 TERRAIN_CODES: Dict[str, int] = {
@@ -35,8 +36,34 @@ TERRAIN_CODES: Dict[str, int] = {
     TerrainType.MOUNTAIN.value: 3,
 }
 
+ROLE_CODES: Dict[str, int] = {
+    "child": 0,
+    "forager": 1,
+    "farmer": 2,
+    "warrior": 3,
+    "scholar": 4,
+    "healer": 5,
+    "elder": 6,
+}
+HOUSE_CODES: Dict[str, int] = {"": 0, "deepseek": 1, "openai": 2}
+
+
+def _pack_look(agent: Any, is_chief: bool) -> int:
+    """Pack role, LLM house and flags into one int for the live map sprites."""
+    role = ROLE_CODES.get(getattr(agent, "role", "") or "forager", 1)
+    house = HOUSE_CODES.get(getattr(agent, "ai_house", "") or "", 0)
+    flags = 0
+    if is_chief:
+        flags |= 1
+    if getattr(agent, "is_ill", False):
+        flags |= 2
+    health = getattr(getattr(agent, "needs", None), "health", 100.0)
+    if health < 35:
+        flags |= 4
+    return role | (house << 4) | (flags << 8)
+
 # Event kinds worth showing in the live feed.
-LOGGED_KINDS = ("birth", "death", "war", "plague", "invention", "society", "milestone")
+LOGGED_KINDS = ("birth", "death", "war", "plague", "invention", "society", "milestone", "mind")
 
 
 class LiveState:
@@ -74,10 +101,16 @@ class LiveState:
         """Terrain and dimensions. Constant for the life of a world."""
         with self.runner.lock:
             grid = self.engine.world.grid
+            from ..ai.client import available_houses
+
             return {
                 "width": self.engine.world.width,
                 "height": self.engine.world.height,
                 "seed": self.engine.seed,
+                "houses": [
+                    {"house": spec["house"], "label": spec["label"]}
+                    for spec in available_houses()
+                ],
                 "terrain": [
                     "".join(str(TERRAIN_CODES[tile.value]) for tile in row) for row in grid
                 ],
@@ -89,9 +122,21 @@ class LiveState:
             engine = self.engine
             stats = engine.stats()
 
+            chiefs = {
+                group.chieftain_id
+                for group in engine.groups.active()
+                if group.chieftain_id is not None
+            }
             agents: List[int] = []
             for agent in engine.agents:
-                agents.extend((agent.x, agent.y, self._index_for(agent.group_id)))
+                agents.extend(
+                    (
+                        agent.x,
+                        agent.y,
+                        self._index_for(agent.group_id),
+                        _pack_look(agent, agent.id in chiefs),
+                    )
+                )
 
             settlements: List[int] = []
             for settlement in engine.settlements.active():
@@ -102,6 +147,37 @@ class LiveState:
 
             fresh = [entry for entry in self.log if entry["d"] > since_day][-60:]
             capacity = stats.food_capacity or 1.0
+            from ..ai.client import ENV_KEY, OPENAI_ENV_KEY, available_houses, is_available
+
+            minds = []
+            civs = []
+            for row in engine.minds.snapshot(engine):
+                group = engine.groups.get(row.group_id)
+                settlement = engine.settlements.for_group(row.group_id) if group else None
+                entry = {
+                    "id": row.group_id,
+                    "name": row.name,
+                    "stance": row.stance,
+                    "intent": row.intent,
+                    "inventing": row.inventing,
+                    "thinking": row.thinking,
+                    "error": row.error,
+                    "house": row.house,
+                    "model": row.model,
+                    "color": self._index_for(row.group_id),
+                    "pop": group.size if group else 0,
+                    "era": group.era if group else "",
+                    "x": (settlement.x if settlement else group.centre[0]) if group else 0,
+                    "y": (settlement.y if settlement else group.centre[1]) if group else 0,
+                    "town": settlement.name if settlement else "",
+                    "research": round(group.knowledge.research_points) if group else 0,
+                }
+                minds.append(entry)
+                civs.append(entry)
+            houses = [
+                {"house": spec["house"], "label": spec["label"]}
+                for spec in available_houses()
+            ]
             return {
                 "day": stats.day,
                 "year": stats.year,
@@ -123,6 +199,18 @@ class LiveState:
                 "agents": agents,
                 "settlementList": settlements,
                 "log": fresh,
+                "discoveries": list(engine.discoveries[-16:]),
+                "civs": civs,
+                "houses": houses,
+                "ai": {
+                    "available": is_available() and engine.config.ai.enabled,
+                    "key": ENV_KEY,
+                    "openaiKey": OPENAI_ENV_KEY,
+                    "minds": stats.ai_minds,
+                    "thinking": stats.ai_thinking,
+                    "tribes": minds,
+                    "houses": houses,
+                },
             }
 
     def inspect(self, x: int, y: int) -> Dict[str, Any]:
@@ -146,8 +234,11 @@ class LiveState:
                     best, best_distance = settlement, d
 
             if best is not None:
+                from ..ai.client import house_spec
+
                 group = engine.groups.get(best.group_id)
                 chief = engine.get_agent(group.chieftain_id) if group and group.chieftain_id else None
+                house = group.ai_house if group else ""
                 result["settlement"] = {
                     "name": best.name,
                     "level": best.level_name,
@@ -157,7 +248,14 @@ class LiveState:
                     "tribe": group.name if group else "abandoned",
                     "population": group.size if group else 0,
                     "era": group.era if group else "",
-                    "techs": sorted(group.knowledge.known) if group else [],
+                    "house": house,
+                    "model": house_spec(house)["label"] if house else "",
+                    "research": round(group.knowledge.research_points) if group else 0,
+                    "techs": [
+                        (tech.name if tech else tech_id)
+                        for tech_id in sorted(group.knowledge.known)
+                        for tech in [lookup_tech(tech_id)]
+                    ] if group else [],
                     "chieftain": chief.full_name if chief else None,
                     "chieftainAge": round(chief.age_years(dpy)) if chief else None,
                     "battlesWon": group.battles_won if group else 0,
@@ -165,7 +263,19 @@ class LiveState:
                     "warDead": group.war_dead if group else 0,
                     "plagueDead": group.plague_dead if group else 0,
                     "roles": {k: v for k, v in (group.role_counts or {}).items() if v} if group else {},
+                    "mind": None,
                 }
+                if group is not None:
+                    policy = engine.minds.policy_for(group.id)
+                    if policy is not None:
+                        result["settlement"]["mind"] = {
+                            "stance": policy.stance,
+                            "intent": policy.intent,
+                            "inventing": policy.invent.name if policy.invent else "",
+                            "fight": policy.fight,
+                            "flee": policy.flee,
+                            "house": group.ai_house,
+                        }
 
             # A couple of the people standing here.
             people = []
@@ -180,10 +290,14 @@ class LiveState:
                         "goal": agent.goal,
                         "health": round(agent.needs.health),
                         "hunger": round(agent.needs.hunger),
+                        "energy": round(agent.needs.energy),
+                        "house": agent.ai_house,
+                        "family": agent.family_name,
+                        "chief": bool(tribe and tribe.chieftain_id == agent.id),
                         "tribe": tribe.name if tribe else None,
                         "ill": agent.infection.disease.name if agent.infection else None,
                     })
-                    if len(people) >= 6:
+                    if len(people) >= 8:
                         break
             result["people"] = people
             return result
@@ -198,7 +312,7 @@ class LiveState:
 
         if not narrator.is_available():
             return {"ok": False, "error":
-                    f"No API key. Set {narrator.ENV_KEY} before starting Worldbox."}
+                    f"No API key. Put {narrator.ENV_KEY} in .env or export it."}
         with self.runner.lock:
             entries = list(self.engine.chronicle.entries)
             year = self.engine.clock.year
@@ -246,6 +360,9 @@ class LiveState:
                         days_per_year=config.simulation.days_per_year, day=day,
                         needs=Needs(hunger=20.0, energy=90.0, health=100.0),
                     )
+                    from ..ai.client import house_for_index
+
+                    agent.ai_house = house_for_index(agent.id)
                     engine._next_agent_id += 1
                     engine.agents.append(agent)
                     affected += 1
@@ -314,6 +431,134 @@ class LiveState:
                 return {"ok": False, "error": f"Unknown tool: {tool}"}
 
             return {"ok": True, "tool": tool, "affected": affected}
+
+    def found_civ(
+        self,
+        x: int,
+        y: int,
+        name: str,
+        house: str,
+        people: int = 10,
+    ) -> Dict[str, Any]:
+        """Plant a named civilisation at a tile, played by a chosen LLM house."""
+        from ..agents.agent import create_agent
+        from ..agents.needs import Needs
+        from ..ai.client import available_houses, house_for_index, house_spec
+
+        cleaned = "".join(
+            ch for ch in name.strip()[:40] if ch.isalnum() or ch in " -'"
+        ).strip()
+        count = max(6, min(18, int(people)))
+        requested = (house or "").strip().lower()
+        roster = available_houses()
+        mixed = requested in {"mix", "mixed", "both"}
+        chosen = ""
+        if mixed:
+            chosen = house_for_index(x + y + count) if roster else ""
+        elif requested:
+            spec = house_spec(requested)
+            if roster and any(row["house"] == spec["house"] for row in roster):
+                chosen = spec["house"]
+            elif roster:
+                chosen = roster[0]["house"]
+        elif roster:
+            chosen = roster[0]["house"]
+
+        with self.runner.lock:
+            engine = self.engine
+            world = engine.world
+            if not world.in_bounds(x, y):
+                return {"ok": False, "error": "That tile is off the map."}
+            if not world.is_passable(x, y):
+                nearby = [
+                    (tx, ty)
+                    for tx, ty in world.tiles_within(x, y, 4)
+                    if world.is_passable(tx, ty)
+                ]
+                if not nearby:
+                    return {"ok": False, "error": "No walkable ground here."}
+                x, y = nearby[0]
+
+            day = engine.clock.day
+            rng = engine.rng
+            dpy = engine.config.simulation.days_per_year
+            group = engine.groups.create(day, rng)
+            if cleaned:
+                kind = group.name.split()[-1] if " " in group.name else "Folk"
+                group.name = cleaned if cleaned.lower().endswith(
+                    ("tribe", "clan", "folk", "kin", "host")
+                ) else f"{cleaned} {kind}"
+            group.ai_house = chosen
+            group.centre = (x, y)
+
+            spots = [
+                (tx, ty)
+                for tx, ty in world.tiles_within(x, y, 2)
+                if world.is_passable(tx, ty)
+            ] or [(x, y)]
+            family = cleaned.split()[0] if cleaned else group.name.split()[0]
+            spawned = []
+            for index in range(count):
+                tx, ty = spots[index % len(spots)]
+                agent = create_agent(
+                    agent_id=engine._next_agent_id,
+                    x=tx,
+                    y=ty,
+                    age_days=int(rng.uniform(16, 32) * dpy),
+                    rng=rng,
+                    config=engine.config.agents,
+                    days_per_year=dpy,
+                    day=day,
+                    group_id=group.id,
+                    inherited_family=family,
+                    needs=Needs(hunger=12.0, energy=95.0, health=100.0),
+                )
+                if mixed and roster:
+                    agent.ai_house = roster[index % len(roster)]["house"]
+                else:
+                    agent.ai_house = chosen or house_for_index(agent.id)
+                engine._next_agent_id += 1
+                engine.agents.append(agent)
+                spawned.append(agent)
+            group.member_ids = [agent.id for agent in spawned]
+            group.chieftain_id = spawned[0].id
+            spawned[0].role = "warrior"
+
+            ceiling = engine.config.settlements.max_fertility + 1.0
+            for tx, ty in world.tiles_within(x, y, 3):
+                world.resources.cultivate(tx, ty, 0.5, ceiling)
+                cap = world.resources.effective_capacity(tx, ty)
+                if cap > 0:
+                    world.resources.food[ty][tx] = cap
+
+            settlement = engine.settlements.found_at(group, x, y, day, rng, food_store=50.0)
+            label = house_spec(chosen)["label"] if chosen else "utility rules"
+            town = settlement.name if settlement else "open ground"
+            engine.events.record(
+                day,
+                EventKind.SOCIETY,
+                f"You founded the {group.name} at {town} ({label}, {count} people)",
+            )
+            if settlement is not None:
+                engine.chronicle.note_settlement(
+                    day,
+                    engine.clock.year,
+                    settlement.id,
+                    settlement.name,
+                    int(settlement.level),
+                    settlement.level_name,
+                    group.name,
+                )
+            return {
+                "ok": True,
+                "id": group.id,
+                "name": group.name,
+                "house": chosen,
+                "model": label,
+                "people": count,
+                "x": x,
+                "y": y,
+            }
 
     def overlay(self, kind: str) -> Dict[str, Any]:
         """A per-tile data layer for the map: fertility, food or crowding."""
@@ -397,6 +642,14 @@ def _handler_factory(state: LiveState, page_loader):
                         int(query.get("x", ["0"])[0]),
                         int(query.get("y", ["0"])[0]),
                         int(query.get("radius", ["3"])[0]),
+                    ))
+                elif parsed.path == "/found":
+                    self._json(state.found_civ(
+                        int(query.get("x", ["0"])[0]),
+                        int(query.get("y", ["0"])[0]),
+                        query.get("name", [""])[0],
+                        query.get("house", [""])[0],
+                        int(query.get("people", ["10"])[0]),
                     ))
                 elif parsed.path == "/overlay":
                     self._json(state.overlay(query.get("kind", ["fertility"])[0]))

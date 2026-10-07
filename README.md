@@ -52,6 +52,7 @@ of hosts, and comes back a generation later once enough new people have been bor
 | `step` / `advance <n>` | one day / n days (bare numbers work too) |
 | `chronicle` | the history — what this is all for |
 | `tribes` / `tribe <id>` | who exists, and one of them in detail |
+| `minds` | what each tribe AI has decided to do |
 | `tech` | the tech tree and who's got what |
 | `wars` / `towns` | current conflicts, current settlements |
 | `agent <id>` | one person: needs, memory, family, job |
@@ -96,7 +97,9 @@ python3 -m worldbox.main --live
 Opens a browser map that updates twice a second. Zoom with the `+`/`-` buttons
 (or ctrl-scroll), click anywhere to inspect that tile — settlement, tribe,
 chieftain, granary, professions, and whoever is standing there — and press
-**Ask AI** for a written history of the run so far. `livemap` does the same from
+**Ask AI** for a written history of the run so far. The **Minds** panel shows
+what each tribe has decided to do — farm, raid, research — and those decisions
+change the simulation, not just the prose. `livemap` does the same from
 inside the prompt.
 
 Recorded, to scrub through afterwards:
@@ -137,19 +140,51 @@ The old ladder is still there as `decide_by_rules`, behind
 `UtilityConfig.enabled`. `tools/compare_runs.py` runs both on the same seeds
 and prints the difference.
 
-## AI narration
+## AI minds
 
-Optional and off by default. Set a key and it works:
+The point of Worldbox is to trap language models in a simulator and see what
+they do with a people. Narration is optional colour; the minds are the players.
+
+Each tribe that forms is handed to DeepSeek-V4.1-Flash (`deepseek-flash`). Every
+few dozen days it looks at the tribe's food, neighbours, wars and granary, and
+returns a policy. That policy is applied to the real systems:
+
+- who farms, fights, studies or heals
+- how readily members fight, flee or forage
+- how tightly they hold territory
+- daily diplomacy toward named neighbours (war, peace, trade)
+- custom crafts invented from materials actually around the tribe — river,
+  forest, mountain, granary, a war — paid for with research like Fire or Pottery.
+
+Those inventions really change the tribe: fish traps raise food yield, a
+hill-fort raises combat, and they show up in the **Discoveries** panel as they
+land. A mind cannot will iron out of grassland; the proposal is dropped if the
+materials are not there.
+
+People still pick a daily action by scoring needs. The mind sets the weights
+and the politics those scores live inside. Tiny bands stay on the ordinary
+rules until they are large enough to be worth a call.
+
+Put a key in `.env` at the project root (copy `.env.example`) and run it:
 
 ```bash
-export GEMINI_API_KEY=your-key-here
-python3 -m worldbox.main
-worldbox> narrate
+# .env
+DEEPSEEK_API_KEY=your-key-here
+
+python3 -m worldbox.main --live
 ```
 
-It reads the chronicle and writes it up as history. It's told to use only what's
-in the chronicle, so it won't invent wars that didn't happen. Nothing else in the
-simulation touches the network, and a missing key just disables the command.
+`export DEEPSEEK_API_KEY=...` still works, and overrides the file if both are set.
+
+Watch the **Minds** panel. Or from the prompt, `minds` and `tribe <id>`.
+`narrate` still writes the chronicle up as prose, using the same model.
+
+`--no-ai` turns the minds off even if a key is set, which is what you want for
+a repeatable seed. No key, or a failed call, leaves a tribe on utility — the
+world never stalls waiting for the network.
+
+Nothing else in the simulation touches the network. The key is read from
+`.env` or the environment, never from the repository. `.env` is gitignored.
 
 ## Layout
 
@@ -161,12 +196,13 @@ worldbox/
   society/           tribes, settlements, tech, jobs, diplomacy, war, disease
   simulation/        the day loop, events, the chronicle, the clock
   cli/               prompt and live dashboard
-  ai/                optional narration
+  ai/                DeepSeek client, tribe minds, optional narration
   export.py          record a run to JSON
 ```
 
 Dependencies only point one way: `cli → simulation → society → agents → world → config`.
-The engine doesn't know the terminal exists, which is what makes a GUI possible later
+Tribe minds sit beside the engine and write policies back into society; the
+engine does not know the terminal exists, which is what makes a GUI possible
 without touching any of the simulation.
 
 ## A day

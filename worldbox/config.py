@@ -433,6 +433,42 @@ class DiseaseConfig:
 
 
 # ---------------------------------------------------------------------------
+# AI minds
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AIConfig:
+    """DeepSeek Flash as the minds of tribes.
+
+    When a key is present, each viable tribe is an AI player. It periodically
+    looks at the world and returns a policy that changes labour, diplomacy and
+    how members choose actions. Turn ``enabled`` off to get a deterministic
+    utility-only run.
+    """
+
+    enabled: bool = True
+
+    # Days between thoughts for one tribe. Lower = more present, more API calls.
+    think_interval_days: int = 40
+
+    # How long one mind may spend thinking before we give up.
+    timeout_seconds: float = 18.0
+
+    # Parallel API calls. Flash is cheap and fast; keep this small anyway so a
+    # burst of new tribes cannot stampede the key.
+    max_concurrent: int = 3
+
+    # Only the largest N tribes get a mind. Tiny bands stay on utility.
+    max_minds: int = 10
+    min_tribe_size: int = 4
+
+    # Custom crafts proposed by a mind, paid for with research points.
+    allow_inventions: bool = True
+    max_custom_techs: int = 8
+
+
+# ---------------------------------------------------------------------------
 # Simulation loop
 # ---------------------------------------------------------------------------
 
@@ -496,6 +532,7 @@ class Config:
     diplomacy: DiplomacyConfig = field(default_factory=DiplomacyConfig)
     combat: CombatConfig = field(default_factory=CombatConfig)
     disease: DiseaseConfig = field(default_factory=DiseaseConfig)
+    ai: AIConfig = field(default_factory=AIConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
 
     def validate(self) -> None:
@@ -532,3 +569,13 @@ class Config:
             raise ValueError("war_threshold must be below peace_threshold.")
         if self.combat.damage_ratio_cap < 1.0:
             raise ValueError("damage_ratio_cap must be at least 1.0.")
+        if self.ai.think_interval_days < 1:
+            raise ValueError("think_interval_days must be at least 1.")
+        if self.ai.max_concurrent < 1:
+            raise ValueError("max_concurrent must be at least 1.")
+        if self.ai.max_minds < 1:
+            raise ValueError("max_minds must be at least 1.")
+        if self.ai.min_tribe_size < 1:
+            raise ValueError("min_tribe_size must be at least 1.")
+        if self.ai.timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive.")

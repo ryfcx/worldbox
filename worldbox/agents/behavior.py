@@ -87,6 +87,13 @@ class SocialContext:
     home: Optional[Coord] = None  # The agent's tribe's settlement or centre.
     reproduction_cooldown_scale: float = 1.0  # <1.0 means children come sooner.
     vision_bonus: int = 0  # Extra sight radius, e.g. for foragers.
+    # Tribe-mind overlays. 1.0 is "no opinion"; the utility layer multiplies.
+    fight_bias: float = 1.0
+    flee_bias: float = 1.0
+    food_bias: float = 1.0
+    mate_bias: float = 1.0
+    cohesion: Optional[float] = None  # Overrides GroupConfig.cohesion_chance.
+    territory_radius: Optional[int] = None  # Overrides GroupConfig.territory_radius.
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +250,12 @@ def _step_away_from(agent: Agent, threat: Coord, world: World, rng: random.Rando
 
 
 def _wander_or_return_home(
-    agent: Agent, home: Optional[Coord], world: World, config: Config, rng: random.Random
+    agent: Agent,
+    home: Optional[Coord],
+    world: World,
+    config: Config,
+    rng: random.Random,
+    social: Optional[SocialContext] = None,
 ) -> bool:
     """Wander, but drift back toward the tribe's centre.
 
@@ -253,9 +265,16 @@ def _wander_or_return_home(
     """
     if home is None:
         return _wander(agent, world, rng)
+    social = social or SocialContext()
     group_config = config.groups
+    cohesion = social.cohesion if social.cohesion is not None else group_config.cohesion_chance
+    radius = (
+        social.territory_radius
+        if social.territory_radius is not None
+        else group_config.territory_radius
+    )
     distance = max(abs(agent.x - home[0]), abs(agent.y - home[1]))
-    if distance > group_config.territory_radius or rng.random() < group_config.cohesion_chance:
+    if distance > radius or rng.random() < cohesion:
         return _step_towards(agent, home, world, rng)
     return _wander(agent, world, rng)
 
@@ -386,7 +405,9 @@ def execute(
             else _wander(agent, world, rng)
         )
     else:  # Goal.WANDER
-        result.moved = _wander_or_return_home(agent, social.home, world, config, rng)
+        result.moved = _wander_or_return_home(
+            agent, social.home, world, config, rng, social
+        )
 
     if result.moved:
         apply_movement_cost(agent.needs, config.agents)
