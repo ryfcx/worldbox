@@ -8,6 +8,8 @@ farming, wars, plagues — is something they work out themselves.
 
 Runs on Python 3.10+ with no dependencies.
 
+This was an experiment in vibe coding. The simulator was built by describing what should happen and iterating in conversation, rather than starting from a written spec.
+
 ## Running it
 
 ```bash

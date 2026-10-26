@@ -48,6 +48,102 @@ ROLE_CODES: Dict[str, int] = {
 HOUSE_CODES: Dict[str, int] = {"": 0, "deepseek": 1, "openai": 2}
 
 
+# Map sprites for the things a tribe actually builds. The hall itself is drawn
+# from the settlement level; these are the extra structures around it.
+STRUCTURE_HUT = 0
+STRUCTURE_FARM = 1
+STRUCTURE_GRANARY = 2
+STRUCTURE_WORKSHOP = 3
+STRUCTURE_WALL = 4
+STRUCTURE_SHRINE = 5
+STRUCTURE_DOCK = 6
+STRUCTURE_CRAFT = 7
+
+
+def _structure_spots(world: Any, x: int, y: int, radius: int, taken: set) -> List[Tuple[int, int]]:
+    """Passable tiles around a settlement, nearest ring first."""
+    spots: List[Tuple[int, int]] = []
+    for ring in range(1, radius + 1):
+        for ty in range(y - ring, y + ring + 1):
+            for tx in range(x - ring, x + ring + 1):
+                if max(abs(tx - x), abs(ty - y)) != ring:
+                    continue
+                if (tx, ty) in taken or not world.is_passable(tx, ty):
+                    continue
+                spots.append((tx, ty))
+    return spots
+
+
+def _plan_structures(
+    world: Any,
+    settlement: Any,
+    known: set,
+    names: Dict[str, str],
+    taken: set,
+) -> List[Tuple[int, int, int, str]]:
+    """Buildings this settlement should show, in stable positions."""
+    level = int(settlement.level)
+    wants: List[Tuple[int, str]] = []
+    huts = min(6, 1 + level + (1 if "shelter" in known else 0))
+    wants.extend((STRUCTURE_HUT, "Hut") for _ in range(huts))
+    if "agriculture" in known:
+        wants.extend((STRUCTURE_FARM, "Farm") for _ in range(2 + (1 if level >= 2 else 0)))
+    if "pottery" in known or level >= 2:
+        wants.append((STRUCTURE_GRANARY, "Granary"))
+    if "weaving" in known:
+        wants.append((STRUCTURE_WORKSHOP, "Loom"))
+    if "bronze_working" in known or "iron_working" in known:
+        wants.append((STRUCTURE_WORKSHOP, "Workshop"))
+    if "burial" in known:
+        wants.append((STRUCTURE_SHRINE, "Shrine"))
+    if "engineering" in known or "iron_working" in known:
+        wants.extend((STRUCTURE_WALL, "Wall") for _ in range(4))
+    if "sailing" in known:
+        wants.append((STRUCTURE_DOCK, "Dock"))
+    for tech_id in sorted(tech for tech in known if str(tech).startswith("custom_"))[:4]:
+        wants.append((STRUCTURE_CRAFT, names.get(tech_id, "Craft")))
+
+    radius = min(4, 2 + level)
+    spots = _structure_spots(world, settlement.x, settlement.y, radius, taken)
+    if not spots:
+        return []
+
+    def _near_water(spot: Tuple[int, int]) -> bool:
+        sx, sy = spot
+        for nx, ny in world.neighbours(sx, sy, passable_only=False):
+            tile = world.terrain_at(nx, ny)
+            if tile is not None and tile.value == "water":
+                return True
+        return False
+
+    placed: List[Tuple[int, int, int, str]] = []
+    used: set = set()
+    dock = next(((i, item) for i, item in enumerate(wants) if item[0] == STRUCTURE_DOCK), None)
+    if dock is not None:
+        index, item = dock
+        wants.pop(index)
+        water_spots = [spot for spot in spots if _near_water(spot)]
+        if water_spots:
+            spot = water_spots[0]
+            used.add(spot)
+            placed.append((spot[0], spot[1], item[0], item[1]))
+
+    walls = [item for item in wants if item[0] == STRUCTURE_WALL]
+    rest = [item for item in wants if item[0] != STRUCTURE_WALL]
+    free = [spot for spot in spots if spot not in used]
+    outer = list(reversed(free))
+    for item, spot in zip(walls, outer):
+        used.add(spot)
+        placed.append((spot[0], spot[1], item[0], item[1]))
+    free = [spot for spot in free if spot not in used]
+    for item, spot in zip(rest, free):
+        placed.append((spot[0], spot[1], item[0], item[1]))
+    for x, y, _kind, _name in placed:
+        taken.add((x, y))
+    taken.add((settlement.x, settlement.y))
+    return placed
+
+
 def _pack_look(agent: Any, is_chief: bool) -> int:
     """Pack role, LLM house and flags into one int for the live map sprites."""
     role = ROLE_CODES.get(getattr(agent, "role", "") or "forager", 1)
@@ -139,11 +235,23 @@ class LiveState:
                 )
 
             settlements: List[int] = []
+            structures: List[Any] = []
+            taken: set = set()
             for settlement in engine.settlements.active():
+                color = self._index_for(settlement.group_id)
                 settlements.extend(
-                    (settlement.x, settlement.y, int(settlement.level),
-                     self._index_for(settlement.group_id))
+                    (settlement.x, settlement.y, int(settlement.level), color)
                 )
+                group = engine.groups.get(settlement.group_id)
+                known = group.knowledge.known if group is not None else set()
+                labels = {
+                    tech_id: (lookup_tech(tech_id).name if lookup_tech(tech_id) else tech_id)
+                    for tech_id in known
+                }
+                for sx, sy, kind, label in _plan_structures(
+                    engine.world, settlement, known, labels, taken
+                ):
+                    structures.extend((sx, sy, kind, color, label))
 
             fresh = [entry for entry in self.log if entry["d"] > since_day][-60:]
             capacity = stats.food_capacity or 1.0
@@ -198,10 +306,12 @@ class LiveState:
                 "food": round(stats.total_food / capacity, 3),
                 "agents": agents,
                 "settlementList": settlements,
+                "structures": structures,
                 "log": fresh,
                 "discoveries": list(engine.discoveries[-16:]),
                 "civs": civs,
                 "houses": houses,
+                "delay": self.runner.delay,
                 "ai": {
                     "available": is_available() and engine.config.ai.enabled,
                     "key": ENV_KEY,
@@ -263,8 +373,18 @@ class LiveState:
                     "warDead": group.war_dead if group else 0,
                     "plagueDead": group.plague_dead if group else 0,
                     "roles": {k: v for k, v in (group.role_counts or {}).items() if v} if group else {},
+                    "structures": [],
                     "mind": None,
                 }
+                if group is not None:
+                    labels = {
+                        tech_id: (lookup_tech(tech_id).name if lookup_tech(tech_id) else tech_id)
+                        for tech_id in group.knowledge.known
+                    }
+                    built = _plan_structures(
+                        engine.world, best, group.knowledge.known, labels, set()
+                    )
+                    result["settlement"]["structures"] = [name for _x, _y, _k, name in built]
                 if group is not None:
                     policy = engine.minds.policy_for(group.id)
                     if policy is not None:
@@ -322,6 +442,63 @@ class LiveState:
         if not result.ok:
             return {"ok": False, "error": result.error}
         return {"ok": True, "year": year, "text": result.text}
+
+    def ask(self, question: str) -> Dict[str, Any]:
+        """Answer one question about the world from the chronicle and a briefing.
+
+        The network call runs outside the simulation lock.
+        """
+        from ..ai import narrator
+
+        cleaned = " ".join((question or "").split())[:600]
+        if not cleaned:
+            return {"ok": False, "error": "Type a question first."}
+        if not narrator.is_available():
+            return {
+                "ok": False,
+                "error": f"No API key. Put {narrator.ENV_KEY} or OPENAI_API_KEY in .env.",
+            }
+        with self.runner.lock:
+            engine = self.engine
+            stats = engine.stats()
+            entries = list(engine.chronicle.entries)
+            lines = [
+                f"Year {engine.clock.year}, day {engine.clock.day}.",
+                f"Population {stats.population}. Tribes {stats.tribes}. "
+                f"Settlements {stats.settlements}. Wars {stats.active_wars}. "
+                f"Ill {stats.ill}. Most advanced era: {stats.most_advanced_era}. "
+                f"Distinct technologies: {stats.technologies_known}.",
+                "Tribes:",
+            ]
+            for group in engine.groups.active()[:24]:
+                policy = engine.minds.policy_for(group.id)
+                settlement = engine.settlements.for_group(group.id)
+                line = f"- {group.name}: {group.size} people, {group.era}"
+                if settlement is not None:
+                    line += f", home {settlement.name} ({settlement.level_name})"
+                if policy is not None and policy.stance:
+                    line += f", stance {policy.stance}"
+                if policy is not None and policy.intent:
+                    line += f". Intent: {policy.intent}"
+                if policy is not None and policy.invent is not None:
+                    line += f". Working on {policy.invent.name}"
+                lines.append(line)
+            if engine.discoveries:
+                lines.append("Recent inventions:")
+                for row in engine.discoveries[-12:]:
+                    lines.append(
+                        f"- Year {row.get('year')}: {row.get('tribe')} invented {row.get('name')}"
+                    )
+            recent = self.log[-24:]
+            if recent:
+                lines.append("Recent events:")
+                lines.extend(f"- Day {entry['d']} ({entry['k']}): {entry['m']}" for entry in recent)
+            briefing = "\n".join(lines)
+            year = engine.clock.year
+        result = narrator.answer(cleaned, entries, briefing)
+        if not result.ok:
+            return {"ok": False, "error": result.error}
+        return {"ok": True, "year": year, "question": cleaned, "text": result.text, "model": result.model}
 
     def act(self, tool: str, x: int, y: int, radius: int = 3) -> Dict[str, Any]:
         """Apply a god-tool to the world.
@@ -596,7 +773,19 @@ class LiveState:
                 self.runner.set_delay(float(value))
             except ValueError:
                 pass
-        return {"running": self.runner.running, "delay": self.runner.delay}
+        elif action == "step":
+            days = 1
+            try:
+                days = max(1, min(200, int(value or "1")))
+            except ValueError:
+                days = 1
+            self.runner.pause()
+            with self.runner.lock:
+                for _ in range(days):
+                    if not self.engine.agents:
+                        break
+                    self.engine.step()
+        return {"running": self.runner.running, "delay": self.runner.delay, "day": self.engine.clock.day}
 
 
 def _handler_factory(state: LiveState, page_loader):
@@ -636,6 +825,8 @@ def _handler_factory(state: LiveState, page_loader):
                     self._json(state.inspect(x, y))
                 elif parsed.path == "/explain":
                     self._json(state.explain())
+                elif parsed.path == "/ask":
+                    self._json(state.ask(query.get("q", [""])[0]))
                 elif parsed.path == "/act":
                     self._json(state.act(
                         query.get("tool", [""])[0],

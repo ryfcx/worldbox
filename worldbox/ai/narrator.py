@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Sequence
 
 from ..simulation.chronicle import ChronicleEntry
-from .client import DEFAULT_MODEL, ENV_KEY, ChatResult, api_key, chat, is_available
+from .client import DEFAULT_MODEL, ENV_KEY, OPENAI_ENV_KEY, ChatResult, api_key, chat, is_available
 
 # Re-exported so existing imports of narrator.ENV_KEY / is_available keep working.
 __all__ = [
@@ -26,6 +26,7 @@ __all__ = [
     "api_key",
     "format_chronicle",
     "is_available",
+    "answer",
     "narrate",
     "wrap",
 ]
@@ -105,6 +106,63 @@ def narrate(
         backoff=backoff,
         temperature=0.7,
         max_tokens=1200,
+        json_mode=False,
+        thinking=False,
+    )
+    return Narration.from_chat(result)
+
+
+ANSWER_PROMPT = """\
+You answer questions about a civilisation simulation that is running right now. \
+You are given a status briefing and a chronicle of what has actually happened.
+
+Rules:
+- Answer the question directly, in a few short paragraphs or a tight list.
+- Use only the briefing and the chronicle. Name tribes, places, and years that appear there.
+- If the material does not contain the answer, say so in one sentence. Do not guess.
+- Do not invent people, wars, inventions, or places.
+"""
+
+
+def answer(
+    question: str,
+    entries: Sequence[ChronicleEntry],
+    briefing: str,
+    key: Optional[str] = None,
+    model: str = DEFAULT_MODEL,
+    timeout: float = 30.0,
+    max_entries: int = 80,
+) -> Narration:
+    """Answer one question about the running world.
+
+    The model only sees the briefing and the chronicle, so a question it cannot
+    support comes back as an admission rather than a fabricated history.
+    """
+    if api_key(key) is None and not is_available():
+        return Narration(
+            error=f"No API key. Put {ENV_KEY} or {OPENAI_ENV_KEY} in .env.",
+            model=model,
+        )
+    cleaned = " ".join((question or "").split())
+    if not cleaned:
+        return Narration(error="Type a question first.", model=model)
+
+    source = format_chronicle(entries, max_entries) if entries else "(no chronicle yet)"
+    result = chat(
+        messages=[
+            {"role": "system", "content": ANSWER_PROMPT},
+            {
+                "role": "user",
+                "content": f"Question: {cleaned}\n\nBriefing:\n{briefing}\n\nChronicle:\n{source}",
+            },
+        ],
+        key=key,
+        model=model,
+        timeout=timeout,
+        retries=1,
+        backoff=1.0,
+        temperature=0.4,
+        max_tokens=700,
         json_mode=False,
         thinking=False,
     )
